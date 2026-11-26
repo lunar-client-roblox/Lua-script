@@ -665,59 +665,376 @@ local function textInputRow(parent, label, placeholder, default, onCommit)
     return addOrder(parent, row)
 end
 
-local function colorPicker(parent, label, target, field, onChange)
-    local h, s, v = Color3.toHSV(target[field])
+--// color popup
+local colorSwatches = {}
+local colorState = {
+    target = nil,
+    field = nil,
+    h = 0,
+    s = 1,
+    v = 1,
+    onChange = nil,
+    swatch = nil,
+}
 
-    local head = new("Frame", {
-        Size = UDim2.new(1, 0, 0, 26),
+local popup = new("Frame", {
+    Size = UDim2.fromOffset(272, 356),
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    Position = UDim2.fromScale(0.5, 0.5),
+    BackgroundColor3 = Theme.bg,
+    BorderSizePixel = 0,
+    Visible = false,
+    ZIndex = 120,
+}, gui)
+corner(popup, 14)
+stroke(popup, Theme.stroke, 1)
+tint(popup, "BackgroundColor3", "bg")
+
+local popTitle = new("TextLabel", {
+    Position = UDim2.fromOffset(14, 12),
+    Size = UDim2.new(1, -28, 0, 16),
+    BackgroundTransparency = 1,
+    Font = Enum.Font.GothamBlack,
+    TextSize = 12,
+    TextColor3 = Theme.muted,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    Text = "COLOR",
+    ZIndex = 121,
+}, popup)
+
+local preview = new("Frame", {
+    Position = UDim2.fromOffset(14, 36),
+    Size = UDim2.fromOffset(84, 30),
+    BackgroundColor3 = Color3.new(1, 1, 1),
+    BorderSizePixel = 0,
+    ZIndex = 121,
+}, popup)
+corner(preview, 8)
+stroke(preview, Theme.stroke, 1)
+
+local hexLabel = new("TextLabel", {
+    Position = UDim2.fromOffset(106, 36),
+    Size = UDim2.new(1, -120, 0, 30),
+    BackgroundTransparency = 1,
+    Font = Enum.Font.Code,
+    TextSize = 12,
+    TextColor3 = Theme.text,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    Text = "#FFFFFF",
+    ZIndex = 121,
+}, popup)
+
+local function makeBar(y, labelText)
+    new("TextLabel", {
+        Position = UDim2.fromOffset(14, y),
+        Size = UDim2.new(1, -28, 0, 14),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.GothamBold,
+        TextSize = 10,
+        TextColor3 = Theme.muted,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Text = labelText,
+        ZIndex = 121,
+    }, popup)
+
+    local bar = new("Frame", {
+        Position = UDim2.fromOffset(14, y + 16),
+        Size = UDim2.new(1, -28, 0, 16),
+        BackgroundColor3 = Theme.bg2,
+        BorderSizePixel = 0,
+        ZIndex = 121,
+    }, popup)
+    corner(bar, 8)
+
+    local grad = new("UIGradient", { Rotation = 0 }, bar)
+    local handle = new("Frame", {
+        Position = UDim2.new(0, -2, 0.5, -12),
+        Size = UDim2.fromOffset(4, 24),
+        BackgroundColor3 = Color3.new(1, 1, 1),
+        BorderSizePixel = 0,
+        ZIndex = 122,
+    }, bar)
+    corner(handle, 2)
+
+    return bar, handle, grad
+end
+
+local hueBar, hueHandle, hueGrad = makeBar(76, "HUE")
+local satBar, satHandle, satGrad = makeBar(116, "SATURATION")
+local valBar, valHandle, valGrad = makeBar(156, "BRIGHTNESS")
+
+hueGrad.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0.00, Color3.fromHSV(0.00, 1, 1)),
+    ColorSequenceKeypoint.new(0.17, Color3.fromHSV(0.17, 1, 1)),
+    ColorSequenceKeypoint.new(0.33, Color3.fromHSV(0.33, 1, 1)),
+    ColorSequenceKeypoint.new(0.50, Color3.fromHSV(0.50, 1, 1)),
+    ColorSequenceKeypoint.new(0.67, Color3.fromHSV(0.67, 1, 1)),
+    ColorSequenceKeypoint.new(0.83, Color3.fromHSV(0.83, 1, 1)),
+    ColorSequenceKeypoint.new(1.00, Color3.fromHSV(1.00, 1, 1)),
+})
+
+local function refreshPicker()
+    local col = Color3.fromHSV(colorState.h, colorState.s, colorState.v)
+    preview.BackgroundColor3 = col
+    hexLabel.Text = string.format(
+        "#%02X%02X%02X",
+        math.floor(col.R * 255 + 0.5),
+        math.floor(col.G * 255 + 0.5),
+        math.floor(col.B * 255 + 0.5)
+    )
+    hueHandle.Position = UDim2.new(colorState.h, -2, 0.5, -12)
+    satHandle.Position = UDim2.new(colorState.s, -2, 0.5, -12)
+    valHandle.Position = UDim2.new(colorState.v, -2, 0.5, -12)
+    satGrad.Color = ColorSequence.new(
+        Color3.fromHSV(colorState.h, 0, colorState.v),
+        Color3.fromHSV(colorState.h, 1, colorState.v)
+    )
+    valGrad.Color = ColorSequence.new(
+        Color3.new(0, 0, 0),
+        Color3.fromHSV(colorState.h, colorState.s, 1)
+    )
+end
+
+local function commitPicker()
+    if not colorState.target then
+        return
+    end
+    local col = Color3.fromHSV(colorState.h, colorState.s, colorState.v)
+    colorState.target[colorState.field] = col
+    if colorState.swatch then
+        colorState.swatch.BackgroundColor3 = col
+    end
+    if colorState.onChange then
+        colorState.onChange(col)
+    end
+    refreshPicker()
+end
+
+local function attachBar(bar, onAlpha)
+    local dragging = false
+    local function apply(input)
+        local a = math.clamp(
+            (input.Position.X - bar.AbsolutePosition.X) / math.max(bar.AbsoluteSize.X, 1),
+            0,
+            1
+        )
+        onAlpha(a)
+    end
+    track(bar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            apply(input)
+        end
+    end))
+    track(UIS.InputChanged:Connect(function(input)
+        if dragging
+            and (input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch) then
+            apply(input)
+        end
+    end))
+    track(UIS.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end))
+end
+
+attachBar(hueBar, function(a)
+    colorState.h = a
+    commitPicker()
+end)
+attachBar(satBar, function(a)
+    colorState.s = a
+    commitPicker()
+end)
+attachBar(valBar, function(a)
+    colorState.v = a
+    commitPicker()
+end)
+
+new("TextLabel", {
+    Position = UDim2.fromOffset(14, 192),
+    Size = UDim2.new(1, -28, 0, 14),
+    BackgroundTransparency = 1,
+    Font = Enum.Font.GothamBold,
+    TextSize = 10,
+    TextColor3 = Theme.muted,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    Text = "PRESETS",
+    ZIndex = 121,
+}, popup)
+
+local PRESET_COLORS = {
+    Color3.fromRGB(255, 64, 64), Color3.fromRGB(255, 140, 40), Color3.fromRGB(255, 220, 60),
+    Color3.fromRGB(120, 255, 90), Color3.fromRGB(40, 255, 170), Color3.fromRGB(0, 220, 255),
+    Color3.fromRGB(0, 140, 255), Color3.fromRGB(90, 110, 255), Color3.fromRGB(170, 90, 255),
+    Color3.fromRGB(255, 90, 210), Color3.fromRGB(255, 255, 255), Color3.fromRGB(200, 205, 215),
+    Color3.fromRGB(140, 145, 155), Color3.fromRGB(90, 95, 105), Color3.fromRGB(50, 52, 60),
+    Color3.fromRGB(20, 20, 24), Color3.fromRGB(0, 255, 200), Color3.fromRGB(180, 255, 0),
+    Color3.fromRGB(255, 200, 0), Color3.fromRGB(255, 90, 0), Color3.fromRGB(200, 0, 60),
+    Color3.fromRGB(120, 0, 200), Color3.fromRGB(0, 80, 200), Color3.fromRGB(0, 200, 120),
+}
+
+for i, col in ipairs(PRESET_COLORS) do
+    local idx = i - 1
+    local cx = idx % 6
+    local cy = math.floor(idx / 6)
+    local btn = new("TextButton", {
+        Position = UDim2.fromOffset(14 + cx * 40, 212 + cy * 24),
+        Size = UDim2.fromOffset(36, 20),
+        BackgroundColor3 = col,
+        AutoButtonColor = false,
+        Text = "",
+        BorderSizePixel = 0,
+        ZIndex = 121,
+    }, popup)
+    corner(btn, 5)
+    track(btn.Activated:Connect(function()
+        local h, s, v = Color3.toHSV(col)
+        colorState.h, colorState.s, colorState.v = h, s, v
+        commitPicker()
+    end))
+end
+
+local popDone = new("TextButton", {
+    Position = UDim2.fromOffset(14, 312),
+    Size = UDim2.new(1, -28, 0, 32),
+    BackgroundColor3 = Theme.accent,
+    AutoButtonColor = false,
+    Font = Enum.Font.GothamBold,
+    TextSize = 12,
+    TextColor3 = Color3.new(1, 1, 1),
+    Text = "DONE",
+    BorderSizePixel = 0,
+    ZIndex = 121,
+}, popup)
+corner(popDone, 9)
+tint(popDone, "BackgroundColor3", "accent")
+
+track(popDone.Activated:Connect(function()
+    popup.Visible = false
+end))
+
+local function openColorPicker(target, field, swatch, onChange)
+    local h, s, v = Color3.toHSV(target[field])
+    colorState.target = target
+    colorState.field = field
+    colorState.swatch = swatch
+    colorState.onChange = onChange
+    colorState.h, colorState.s, colorState.v = h, s, v
+    refreshPicker()
+    popup.Visible = true
+end
+
+local function colorPicker(parent, label, target, field, onChange)
+    local row = new("Frame", {
+        Size = UDim2.new(1, 0, 0, 34),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
     }, parent)
 
     new("TextLabel", {
-        Size = UDim2.new(1, -34, 1, 0),
+        Size = UDim2.new(1, -72, 1, 0),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.GothamMedium,
+        TextSize = 13,
+        TextColor3 = Theme.text,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Text = label,
+    }, row)
+
+    local swatch = new("TextButton", {
+        Size = UDim2.new(0, 56, 0, 24),
+        Position = UDim2.new(1, -56, 0.5, -12),
+        BackgroundColor3 = target[field],
+        AutoButtonColor = false,
+        Text = "",
+        BorderSizePixel = 0,
+    }, row)
+    corner(swatch, 7)
+    stroke(swatch, Theme.stroke, 1)
+
+    colorSwatches[#colorSwatches + 1] = {
+        swatch = swatch,
+        target = target,
+        field = field,
+    }
+
+    track(swatch.Activated:Connect(function()
+        openColorPicker(target, field, swatch, onChange)
+    end))
+
+    return addOrder(parent, row)
+end
+
+--// collapsible group
+local function collapsible(parent, title, open)
+    local wrap = new("Frame", {
+        Size = UDim2.new(1, 0, 0, 0),
+        AutomaticSize = Enum.AutomaticSize.Y,
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+    }, parent)
+    new("UIListLayout", {
+        Padding = UDim.new(0, 6),
+        SortOrder = Enum.SortOrder.LayoutOrder,
+    }, wrap)
+
+    local head = new("TextButton", {
+        Size = UDim2.new(1, 0, 0, 32),
+        BackgroundColor3 = Theme.bg2,
+        AutoButtonColor = false,
+        Text = "",
+        BorderSizePixel = 0,
+    }, wrap)
+    corner(head, 9)
+    tint(head, "BackgroundColor3", "bg2")
+
+    new("TextLabel", {
+        Position = UDim2.fromOffset(12, 0),
+        Size = UDim2.new(1, -46, 1, 0),
         BackgroundTransparency = 1,
         Font = Enum.Font.GothamBold,
         TextSize = 11,
         TextColor3 = Theme.muted,
         TextXAlignment = Enum.TextXAlignment.Left,
-        Text = string.upper(label),
+        Text = string.upper(title),
     }, head)
 
-    local swatch = new("Frame", {
-        Size = UDim2.fromOffset(22, 18),
-        Position = UDim2.new(1, -22, 0.5, -9),
-        BackgroundColor3 = target[field],
+    local arrow = new("TextLabel", {
+        Position = UDim2.new(1, -32, 0, 0),
+        Size = UDim2.fromOffset(24, 32),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.GothamBold,
+        TextSize = 13,
+        TextColor3 = Theme.muted,
+        Text = open and "▾" or "▸",
+    }, head)
+
+    local body = new("Frame", {
+        Size = UDim2.new(1, 0, 0, 0),
+        AutomaticSize = Enum.AutomaticSize.Y,
+        BackgroundTransparency = 1,
         BorderSizePixel = 0,
-    }, head)
-    corner(swatch, 6)
-    stroke(swatch, Theme.stroke, 1)
+        Visible = open,
+    }, wrap)
+    new("UIListLayout", {
+        Padding = UDim.new(0, 6),
+        SortOrder = Enum.SortOrder.LayoutOrder,
+    }, body)
 
-    local function commit()
-        target[field] = Color3.fromHSV(h, s, v)
-        swatch.BackgroundColor3 = target[field]
-        if onChange then
-            onChange(target[field])
-        end
-    end
+    track(head.Activated:Connect(function()
+        body.Visible = not body.Visible
+        arrow.Text = body.Visible and "▾" or "▸"
+    end))
 
-    addOrder(parent, head)
-
-    sliderRow(parent, label .. " hue", 0, 360, math.floor(h * 360 + 0.5), "°", function(x)
-        h = x / 360
-        commit()
-    end)
-    sliderRow(parent, label .. " sat", 0, 100, math.floor(s * 100 + 0.5), "%", function(x)
-        s = x / 100
-        commit()
-    end)
-    sliderRow(parent, label .. " val", 0, 100, math.floor(v * 100 + 0.5), "%", function(x)
-        v = x / 100
-        commit()
-    end)
-
-    return head
+    addOrder(parent, wrap)
+    return body
 end
+
 
 --// tabs
 local DANGER = Color3.fromRGB(220, 70, 70)
@@ -850,96 +1167,94 @@ note(pages.combat,
     .. "Hybrid — silent + camera nhẹ. Smooth 1 = bám cứng, 20 = mượt.", 58)
 
 --// RENDER page
-section(pages.render, "esp")
-toggleRow(pages.render, "2D box", Config.esp.box2d, function(v)
+local espGroup = collapsible(pages.render, "esp", true)
+toggleRow(espGroup, "2D box", Config.esp.box2d, function(v)
     Config.esp.box2d = v
 end)
-cycleRow(pages.render, "2D style", ESP_STYLES, Config.esp.style, function(i)
+cycleRow(espGroup, "2D style", ESP_STYLES, Config.esp.style, function(i)
     Config.esp.style = i
 end)
-toggleRow(pages.render, "3D box", Config.esp.box3d, function(v)
+toggleRow(espGroup, "3D box", Config.esp.box3d, function(v)
     Config.esp.box3d = v
 end)
-toggleRow(pages.render, "Name", Config.esp.name, function(v)
+toggleRow(espGroup, "Name", Config.esp.name, function(v)
     Config.esp.name = v
 end)
-toggleRow(pages.render, "Health bar", Config.esp.health, function(v)
+toggleRow(espGroup, "Health bar", Config.esp.health, function(v)
     Config.esp.health = v
 end)
-toggleRow(pages.render, "Distance", Config.esp.distance, function(v)
+toggleRow(espGroup, "Distance", Config.esp.distance, function(v)
     Config.esp.distance = v
 end)
-toggleRow(pages.render, "Tracer", Config.esp.tracer, function(v)
+toggleRow(espGroup, "Tracer", Config.esp.tracer, function(v)
     Config.esp.tracer = v
 end)
-toggleRow(pages.render, "Rainbow esp", Config.esp.rainbow, function(v)
+toggleRow(espGroup, "Rainbow esp", Config.esp.rainbow, function(v)
     Config.esp.rainbow = v
 end)
-colorPicker(pages.render, "ESP color", Config.esp, "color")
+colorPicker(espGroup, "ESP color", Config.esp, "color")
 
-section(pages.render, "target fx")
-toggleRow(pages.render, "Highlight", Config.esp.targetHighlight, function(v)
+local targetGroup = collapsible(pages.render, "target fx", true)
+toggleRow(targetGroup, "Highlight", Config.esp.targetHighlight, function(v)
     Config.esp.targetHighlight = v
 end)
-toggleRow(pages.render, "Reticle", Config.esp.reticle, function(v)
+toggleRow(targetGroup, "Reticle", Config.esp.reticle, function(v)
     Config.esp.reticle = v
 end)
-colorPicker(pages.render, "Target color", Config.esp, "targetColor")
+colorPicker(targetGroup, "Target color", Config.esp, "targetColor")
 
-section(pages.render, "sky — aurora")
-toggleRow(pages.render, "Aurora sky", Config.sky.enabled, function(v)
+local skyGroup = collapsible(pages.render, "sky shader", true)
+toggleRow(skyGroup, "Aurora sky", Config.sky.enabled, function(v)
     Config.sky.enabled = v
 end)
-toggleRow(pages.render, "Rainbow aurora", Config.sky.rainbow, function(v)
+toggleRow(skyGroup, "Rainbow aurora", Config.sky.rainbow, function(v)
     Config.sky.rainbow = v
 end)
-sliderRow(pages.render, "Sky speed", 0, 100, Config.sky.speed, "", function(v)
+sliderRow(skyGroup, "Sky speed", 0, 100, Config.sky.speed, "", function(v)
     Config.sky.speed = v
 end)
-colorPicker(pages.render, "Aurora A", Config.sky, "colorA")
-colorPicker(pages.render, "Aurora B", Config.sky, "colorB")
+colorPicker(skyGroup, "Aurora A", Config.sky, "colorA")
+colorPicker(skyGroup, "Aurora B", Config.sky, "colorB")
 
-section(pages.render, "jump fx")
-toggleRow(pages.render, "Jump ring", Config.jump.enabled, function(v)
+local jumpGroup = collapsible(pages.render, "jump fx", false)
+toggleRow(jumpGroup, "Jump shockwave", Config.jump.enabled, function(v)
     Config.jump.enabled = v
 end)
-toggleRow(pages.render, "Rainbow jump", Config.jump.rainbow, function(v)
+toggleRow(jumpGroup, "Rainbow jump", Config.jump.rainbow, function(v)
     Config.jump.rainbow = v
 end)
-colorPicker(pages.render, "Jump color", Config.jump, "color")
+colorPicker(jumpGroup, "Jump color", Config.jump, "color")
 
-section(pages.render, "walk fx")
-toggleRow(pages.render, "Walk trail", Config.walk.enabled, function(v)
+local walkGroup = collapsible(pages.render, "walk fx", false)
+toggleRow(walkGroup, "Walk ribbon", Config.walk.enabled, function(v)
     Config.walk.enabled = v
 end)
-cycleRow(pages.render, "Walk style", WALK_MODES, Config.walk.mode, function(i)
+cycleRow(walkGroup, "Walk style", WALK_MODES, Config.walk.mode, function(i)
     Config.walk.mode = i
 end)
-toggleRow(pages.render, "Rainbow walk", Config.walk.rainbow, function(v)
+toggleRow(walkGroup, "Rainbow walk", Config.walk.rainbow, function(v)
     Config.walk.rainbow = v
 end)
-colorPicker(pages.render, "Walk color", Config.walk, "color")
+colorPicker(walkGroup, "Walk color", Config.walk, "color")
 
-section(pages.render, "orbit fx")
-toggleRow(pages.render, "Orbit", Config.orbit.enabled, function(v)
+local orbitGroup = collapsible(pages.render, "orbit fx", false)
+toggleRow(orbitGroup, "Orbit ambient", Config.orbit.enabled, function(v)
     Config.orbit.enabled = v
 end)
-cycleRow(pages.render, "Orbit style", ORBIT_KINDS, Config.orbit.kind, function(i)
+cycleRow(orbitGroup, "Orbit style", ORBIT_KINDS, Config.orbit.kind, function(i)
     Config.orbit.kind = i
 end)
-sliderRow(pages.render, "Orbit count", 3, 20, Config.orbit.count, "", function(v)
+sliderRow(orbitGroup, "Orbit rate", 1, 10, Config.orbit.count, "", function(v)
     Config.orbit.count = v
 end)
-sliderRow(pages.render, "Orbit radius", 2, 10, math.floor(Config.orbit.radius), "", function(v)
+sliderRow(orbitGroup, "Orbit radius", 2, 10, math.floor(Config.orbit.radius), "", function(v)
     Config.orbit.radius = v
 end)
-sliderRow(pages.render, "Orbit speed", 0, 10, math.floor(Config.orbit.speed), "", function(v)
-    Config.orbit.speed = v
-end)
-toggleRow(pages.render, "Rainbow orbit", Config.orbit.rainbow, function(v)
+toggleRow(orbitGroup, "Rainbow orbit", Config.orbit.rainbow, function(v)
     Config.orbit.rainbow = v
 end)
-colorPicker(pages.render, "Orbit color", Config.orbit, "color")
+colorPicker(orbitGroup, "Orbit color", Config.orbit, "color")
+
 
 --// GUI page
 section(pages.gui, "custom gui")
@@ -1084,6 +1399,12 @@ applyTheme = function()
     else
         panelImage.Image = ""
         panelImage.ImageTransparency = 1
+    end
+
+    for _, entry in ipairs(colorSwatches) do
+        if entry.swatch and entry.swatch.Parent then
+            entry.swatch.BackgroundColor3 = entry.target[entry.field]
+        end
     end
 
     selectTab(activeTab)
@@ -1748,12 +2069,22 @@ local function applyAim(part, factor)
 end
 
 --// sky
+local fxFolder = new("Folder", { Name = "BenchFX" }, workspace)
 local skyState = nil
-local auroraBeams = {}
+local auroraRays = {}
 
 local function makeAurora()
-    auroraBeams = {}
-    for i = 1, 3 do
+    for _, entry in ipairs(auroraRays) do
+        if entry.p0 then
+            entry.p0:Destroy()
+        end
+        if entry.p1 then
+            entry.p1:Destroy()
+        end
+    end
+    auroraRays = {}
+
+    local function addBeam(kind, index, width0, width1)
         local p0 = new("Part", {
             Anchored = true,
             CanCollide = false,
@@ -1761,7 +2092,7 @@ local function makeAurora()
             CanTouch = false,
             Transparency = 1,
             Size = Vector3.new(1, 1, 1),
-        }, workspace)
+        }, fxFolder)
         local p1 = new("Part", {
             Anchored = true,
             CanCollide = false,
@@ -1769,27 +2100,41 @@ local function makeAurora()
             CanTouch = false,
             Transparency = 1,
             Size = Vector3.new(1, 1, 1),
-        }, workspace)
+        }, fxFolder)
         local a0 = new("Attachment", {}, p0)
         local a1 = new("Attachment", {}, p1)
-        new("Beam", {
+        local beam = new("Beam", {
             Attachment0 = a0,
             Attachment1 = a1,
             FaceCamera = true,
-            Segments = 12,
-            LightEmission = 0.8,
+            Segments = 16,
+            LightEmission = 1,
             LightInfluence = 0,
-            Width0 = 160,
-            Width1 = 260,
+            Width0 = width0,
+            Width1 = width1,
             Color = ColorSequence.new(Config.sky.colorA, Config.sky.colorB),
             Transparency = NumberSequence.new({
                 NumberSequenceKeypoint.new(0, 1),
-                NumberSequenceKeypoint.new(0.25, 0.55),
-                NumberSequenceKeypoint.new(0.65, 0.7),
+                NumberSequenceKeypoint.new(0.2, 0.45),
+                NumberSequenceKeypoint.new(0.75, 0.55),
                 NumberSequenceKeypoint.new(1, 1),
             }),
         }, p0)
-        auroraBeams[i] = { p0 = p0, p1 = p1 }
+        auroraRays[#auroraRays + 1] = {
+            kind = kind,
+            index = index,
+            p0 = p0,
+            p1 = p1,
+            beam = beam,
+            phase = math.random() * math.pi * 2,
+        }
+    end
+
+    for i = 1, 3 do
+        addBeam("ribbon", i, 320, 520)
+    end
+    for i = 1, 20 do
+        addBeam("ray", i, 44, 92)
     end
 end
 
@@ -1815,22 +2160,22 @@ local function enableSky()
         oldAtmo.Parent = nil
     end
     skyState.newSky = new("Sky", {
-        StarCount = 4000,
+        StarCount = 6000,
         CelestialBodiesShown = false,
     }, Lighting)
     skyState.newAtmo = new("Atmosphere", {
-        Density = 0.42,
-        Offset = 0.15,
-        Glare = 0.15,
-        Haze = 1.1,
-        Color = Color3.fromRGB(40, 60, 120),
-        Decay = Color3.fromRGB(30, 40, 80),
+        Density = 0.28,
+        Offset = 0.1,
+        Glare = 0.2,
+        Haze = 0.8,
+        Color = Color3.fromRGB(34, 52, 110),
+        Decay = Color3.fromRGB(22, 30, 66),
     }, Lighting)
     Lighting.ClockTime = 0
     Lighting.Ambient = Color3.fromRGB(12, 14, 34)
     Lighting.OutdoorAmbient = Color3.fromRGB(20, 24, 52)
     Lighting.Brightness = 1.2
-    Lighting.FogEnd = 2000
+    Lighting.FogEnd = 5000
     makeAurora()
 end
 
@@ -1838,7 +2183,7 @@ local function disableSky()
     if not skyState then
         return
     end
-    for _, entry in ipairs(auroraBeams) do
+    for _, entry in ipairs(auroraRays) do
         if entry.p0 then
             entry.p0:Destroy()
         end
@@ -1846,7 +2191,7 @@ local function disableSky()
             entry.p1:Destroy()
         end
     end
-    auroraBeams = {}
+    auroraRays = {}
     if skyState.newSky then
         skyState.newSky:Destroy()
     end
@@ -1877,34 +2222,118 @@ local function updateAurora()
     if not cam then
         return
     end
+
     local t = tick() * (Config.sky.speed / 100 + 0.05)
-    local origin = cam.CFrame.Position + cam.CFrame.LookVector * 900 + Vector3.new(0, 260, 0)
+    local origin = cam.CFrame.Position
+        + cam.CFrame.LookVector * 1400
+        + Vector3.new(0, 700, 0)
     local right = cam.CFrame.RightVector
-    for i, entry in ipairs(auroraBeams) do
-        local offset = (i - 2) * 300
-        local sway = math.sin(t + i) * 140
-        entry.p0.Position = origin
-            + right * (offset + sway)
-            + Vector3.new(0, math.sin(t * 0.7 + i) * 50, 0)
-        entry.p1.Position = origin
-            + right * (offset - sway * 1.3 + 160)
-            + Vector3.new(0, -140 + math.cos(t + i) * 40, 0)
-    end
+
     local ca, cb = Config.sky.colorA, Config.sky.colorB
     if Config.sky.rainbow then
-        ca = Color3.fromHSV((t * 0.12) % 1, 0.8, 1)
-        cb = Color3.fromHSV((t * 0.12 + 0.33) % 1, 0.8, 1)
+        ca = Color3.fromHSV((t * 0.08) % 1, 0.85, 1)
+        cb = Color3.fromHSV((t * 0.08 + 0.35) % 1, 0.85, 1)
     end
-    for _, entry in ipairs(auroraBeams) do
-        local beam = entry.p0:FindFirstChildOfClass("Beam")
-        if beam then
-            beam.Color = ColorSequence.new(ca, cb)
+
+    for _, entry in ipairs(auroraRays) do
+        local i = entry.index
+        local phase = entry.phase
+
+        if entry.kind == "ribbon" then
+            local u = (i - 2) / 2
+            local sway = math.sin(t * 0.5 + phase) * 240
+            entry.p0.Position = origin
+                + right * (u * 1900 + sway)
+                + Vector3.new(0, 120 + math.sin(t * 0.6 + phase) * 100, 0)
+            entry.p1.Position = origin
+                + right * (u * 1900 - sway * 0.6)
+                + Vector3.new(0, -80 + math.cos(t * 0.5 + phase) * 80, 0)
+        else
+            local u = (i - 10.5) / 10
+            local sway = math.sin(t * 0.7 + u * 5 + phase) * 180
+            local height = 340 + math.sin(t * 0.9 + i) * 150
+            entry.p0.Position = origin
+                + right * (u * 2300 + sway)
+                + Vector3.new(0, height, 0)
+            entry.p1.Position = origin
+                + right * (u * 2300 + sway * 0.55)
+                + Vector3.new(0, -280 + math.cos(t * 0.8 + i) * 90, 0)
+            entry.beam.Width0 = 40 + 44 * (0.5 + 0.5 * math.sin(t * 1.1 + i))
+            entry.beam.Width1 = entry.beam.Width0 * 1.9
         end
+
+        local fade = 0.42 + 0.22 * math.sin(t * 1.3 + phase)
+        entry.beam.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 1),
+            NumberSequenceKeypoint.new(0.15, math.clamp(fade + 0.15, 0, 1)),
+            NumberSequenceKeypoint.new(0.7, math.clamp(fade, 0, 1)),
+            NumberSequenceKeypoint.new(1, 1),
+        })
+
+        local c0, c1 = ca, cb
+        if entry.kind == "ray" then
+            local k = (i - 1) / 20
+            c0 = ca:Lerp(cb, k * 0.6)
+            c1 = cb:Lerp(ca, 0.35)
+        end
+        entry.beam.Color = ColorSequence.new(c0, c1)
     end
 end
 
 --// jump fx
 local humConn = nil
+
+local function shockwave(pos, color, startRadius, endRadius, duration)
+    local segments = 24
+    local parts = {}
+    for i = 1, segments do
+        local angle = (i / segments) * math.pi * 2
+        parts[i] = {
+            angle = angle,
+            part = new("Part", {
+                Anchored = true,
+                CanCollide = false,
+                CanQuery = false,
+                CanTouch = false,
+                Material = Enum.Material.Neon,
+                Color = color,
+                Size = Vector3.new(0.35, 0.12, 1.4),
+                CFrame = CFrame.new(pos) * CFrame.Angles(0, angle, 0)
+                    * CFrame.new(0, 0, startRadius),
+                Transparency = 0.1,
+            }, fxFolder),
+        }
+    end
+
+    local start = tick()
+    local conn
+    conn = RunService.RenderStepped:Connect(function()
+        if not parts[1].part.Parent then
+            conn:Disconnect()
+            return
+        end
+        local a = math.clamp((tick() - start) / duration, 0, 1)
+        local radius = startRadius + (endRadius - startRadius) * a
+        local fade = 0.1 + 0.9 * a
+        for _, entry in ipairs(parts) do
+            entry.part.CFrame = CFrame.new(pos)
+                * CFrame.Angles(0, entry.angle, 0)
+                * CFrame.new(0, 0, radius)
+            entry.part.Transparency = fade
+            entry.part.Size = Vector3.new(
+                0.35 * (1 - a),
+                0.12,
+                1.4 * (1 - a * 0.5)
+            )
+        end
+        if a >= 1 then
+            conn:Disconnect()
+            for _, entry in ipairs(parts) do
+                entry.part:Destroy()
+            end
+        end
+    end)
+end
 
 local function jumpFx()
     if not Config.jump.enabled then
@@ -1915,10 +2344,18 @@ local function jumpFx()
     if not root then
         return
     end
+
     local col = Config.jump.rainbow
         and Color3.fromHSV((tick() * 0.6) % 1, 0.85, 1)
         or Config.jump.color
-    local ring = new("Part", {
+    local pos = root.Position - Vector3.new(0, 2.7, 0)
+
+    shockwave(pos, col, 1.4, 14, 0.55)
+    task.delay(0.07, function()
+        shockwave(pos, col:Lerp(Color3.new(1, 1, 1), 0.5), 0.8, 9, 0.45)
+    end)
+
+    local column = new("Part", {
         Anchored = true,
         CanCollide = false,
         CanQuery = false,
@@ -1926,18 +2363,18 @@ local function jumpFx()
         Material = Enum.Material.Neon,
         Color = col,
         Shape = Enum.PartType.Cylinder,
-        Size = Vector3.new(0.2, 2, 2),
-        CFrame = CFrame.new(root.Position - Vector3.new(0, 2.6, 0))
+        Size = Vector3.new(8, 2.6, 2.6),
+        CFrame = CFrame.new(pos + Vector3.new(0, 4, 0))
             * CFrame.Angles(0, 0, math.rad(90)),
-        Transparency = 0.1,
-    }, workspace)
+        Transparency = 0.45,
+    }, fxFolder)
     TweenService:Create(
-        ring,
-        TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-        { Size = Vector3.new(0.2, 14, 14), Transparency = 1 }
+        column,
+        TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+        { Size = Vector3.new(18, 0.4, 0.4), Transparency = 1 }
     ):Play()
-    task.delay(0.6, function()
-        ring:Destroy()
+    task.delay(0.5, function()
+        column:Destroy()
     end)
 
     local burst = new("Part", {
@@ -1947,24 +2384,27 @@ local function jumpFx()
         CanTouch = false,
         Transparency = 1,
         Size = Vector3.new(1, 1, 1),
-        CFrame = CFrame.new(root.Position - Vector3.new(0, 2.4, 0)),
-    }, workspace)
+        CFrame = CFrame.new(pos + Vector3.new(0, 0.4, 0)),
+    }, fxFolder)
     local emitter = new("ParticleEmitter", {
         Color = ColorSequence.new(col),
-        Size = NumberSequence.new(0.6),
+        Size = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.9),
+            NumberSequenceKeypoint.new(1, 0.1),
+        }),
         Transparency = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 0.2),
+            NumberSequenceKeypoint.new(0, 0.15),
             NumberSequenceKeypoint.new(1, 1),
         }),
-        Lifetime = NumberRange.new(0.4, 0.7),
-        Speed = NumberRange.new(8, 14),
+        Lifetime = NumberRange.new(0.45, 0.8),
+        Speed = NumberRange.new(14, 24),
         SpreadAngle = Vector2.new(180, 180),
         Rate = 0,
         LightEmission = 1,
         Texture = "rbxasset://textures/particles/sparkles_main.dds",
     }, burst)
-    emitter:Emit(26)
-    task.delay(1, function()
+    emitter:Emit(40)
+    task.delay(1.1, function()
         burst:Destroy()
     end)
 end
@@ -1984,32 +2424,159 @@ hookCharacter(LocalPlayer.Character)
 track(LocalPlayer.CharacterAdded:Connect(hookCharacter))
 
 --// walk fx
-local walkAcc = 0
+local walkTrail = nil
+local walkAttach0 = nil
+local walkAttach1 = nil
+local walkChar = nil
 
-local function updateWalk(dt)
-    if not Config.walk.enabled then
+local function clearWalkTrail()
+    if walkTrail then
+        walkTrail:Destroy()
+        walkTrail = nil
+    end
+    if walkAttach0 then
+        walkAttach0:Destroy()
+        walkAttach0 = nil
+    end
+    if walkAttach1 then
+        walkAttach1:Destroy()
+        walkAttach1 = nil
+    end
+    walkChar = nil
+end
+
+local function buildWalkTrail(char)
+    clearWalkTrail()
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then
         return
     end
+    walkChar = char
+    walkAttach0 = new("Attachment", {
+        Position = Vector3.new(0.8, -2.1, 0),
+    }, root)
+    walkAttach1 = new("Attachment", {
+        Position = Vector3.new(-0.8, -2.1, 0),
+    }, root)
+    walkTrail = new("Trail", {
+        Attachment0 = walkAttach0,
+        Attachment1 = walkAttach1,
+        Lifetime = 0.6,
+        MinLength = 0.1,
+        LightEmission = 1,
+        LightInfluence = 0,
+        FaceCamera = true,
+        Texture = "rbxasset://textures/particles/fire_main.dds",
+        TextureMode = Enum.TextureMode.Stretch,
+        WidthScale = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 1),
+            NumberSequenceKeypoint.new(1, 0.15),
+        }),
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.1),
+            NumberSequenceKeypoint.new(0.65, 0.55),
+            NumberSequenceKeypoint.new(1, 1),
+        }),
+        Color = ColorSequence.new(Config.walk.color),
+        Enabled = false,
+    }, root)
+end
+
+local function updateWalk()
+    if not Config.walk.enabled then
+        if walkTrail then
+            walkTrail.Enabled = false
+        end
+        return
+    end
+
+    local char = LocalPlayer.Character
+    if char ~= walkChar then
+        buildWalkTrail(char)
+    end
+    if not walkTrail then
+        return
+    end
+
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local moving = hum ~= nil and hum.MoveDirection.Magnitude > 0.1
+    walkTrail.Enabled = moving
+    if not moving then
+        return
+    end
+
+    local t = tick()
+    if Config.walk.rainbow or Config.walk.mode == 2 then
+        local h = (t * 0.55) % 1
+        walkTrail.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromHSV(h, 0.9, 1)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromHSV((h + 0.25) % 1, 0.9, 1)),
+            ColorSequenceKeypoint.new(1, Color3.fromHSV((h + 0.5) % 1, 0.9, 1)),
+        })
+        walkTrail.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+        walkTrail.WidthScale = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 1.4),
+            NumberSequenceKeypoint.new(1, 0.2),
+        })
+    else
+        walkTrail.Color = ColorSequence.new(Config.walk.color)
+        walkTrail.Texture = "rbxasset://textures/particles/fire_main.dds"
+        walkTrail.WidthScale = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 1),
+            NumberSequenceKeypoint.new(1, 0.15),
+        })
+    end
+end
+
+--// orbit fx
+local orbitParts = {}
+local orbitAcc = 0
+
+local function clearOrbit()
+    for _, part in ipairs(orbitParts) do
+        if part and part.Parent then
+            part:Destroy()
+        end
+    end
+    orbitParts = {}
+end
+
+local function spawnOrbitFx()
     local char = LocalPlayer.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
-    local hum = char and char:FindFirstChildOfClass("Humanoid")
-    if not root or not hum then
+    if not root then
         return
     end
-    if hum.MoveDirection.Magnitude < 0.1 then
-        return
-    end
-    walkAcc = walkAcc + dt
-    if walkAcc < 0.07 then
-        return
-    end
-    walkAcc = 0
 
-    local col
-    if Config.walk.rainbow or Config.walk.mode == 2 then
-        col = Color3.fromHSV((tick() * 0.8) % 1, 0.85, 1)
+    local kind = Config.orbit.kind
+    local radius = Config.orbit.radius
+    local angle = math.random() * math.pi * 2
+    local dist = radius * (0.5 + math.random() * 0.7)
+    local base = root.Position + Vector3.new(
+        math.cos(angle) * dist,
+        -1 + math.random() * 3,
+        math.sin(angle) * dist
+    )
+    local col = Config.orbit.rainbow
+        and Color3.fromHSV((tick() * 0.35 + math.random()) % 1, 0.85, 1)
+        or Config.orbit.color
+
+    local size, life, drift, transparency
+    if kind == 1 then
+        size = Vector3.new(0.22, 0.22, 0.22)
+        life = 1.3
+        drift = 2.2
+        transparency = 0.15
+    elseif kind == 2 then
+        size = Vector3.new(0.6, 0.9, 0.6)
+        life = 2.4
+        drift = 3
+        transparency = 0.05
     else
-        col = Config.walk.color:Lerp(Color3.new(1, 0.85, 0.4), 0.25 * math.sin(tick() * 8))
+        size = Vector3.new(0.16, 0.16, 0.16)
+        life = 1.8
+        drift = 1.4
+        transparency = 0.2
     end
 
     local part = new("Part", {
@@ -2019,104 +2586,70 @@ local function updateWalk(dt)
         CanTouch = false,
         Material = Enum.Material.Neon,
         Shape = Enum.PartType.Ball,
-        Size = Vector3.new(0.5, 0.5, 0.5),
+        Size = size,
         Color = col,
-        CFrame = CFrame.new(root.Position - Vector3.new(0, 2.4, 0)),
-        Transparency = 0.2,
-    }, workspace)
+        CFrame = CFrame.new(base),
+        Transparency = transparency,
+    }, fxFolder)
+    orbitParts[#orbitParts + 1] = part
+
+    if kind == 2 then
+        new("PointLight", {
+            Brightness = 2.2,
+            Range = 9,
+            Color = col,
+        }, part)
+    end
+
+    if kind == 1 then
+        local emitter = new("ParticleEmitter", {
+            Color = ColorSequence.new(col),
+            Size = NumberSequence.new(0.35),
+            Transparency = NumberSequence.new({
+                NumberSequenceKeypoint.new(0, 0.3),
+                NumberSequenceKeypoint.new(1, 1),
+            }),
+            Lifetime = NumberRange.new(0.35, 0.7),
+            Speed = NumberRange.new(1, 3),
+            SpreadAngle = Vector2.new(180, 180),
+            Rate = 0,
+            LightEmission = 1,
+            Texture = "rbxasset://textures/particles/sparkles_main.dds",
+        }, part)
+        emitter:Emit(8)
+    end
+
     TweenService:Create(
         part,
-        TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+        TweenInfo.new(life, Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
         {
-            CFrame = CFrame.new(root.Position + Vector3.new(0, 1.6, 0)),
-            Size = Vector3.new(0.1, 0.1, 0.1),
+            CFrame = CFrame.new(base + Vector3.new(0, drift, 0)),
             Transparency = 1,
+            Size = size * 0.35,
         }
     ):Play()
-    task.delay(0.7, function()
+
+    task.delay(life + 0.2, function()
         part:Destroy()
     end)
 end
 
---// orbit fx
-local orbitParts = {}
-local orbitKind = nil
-
-local function clearOrbit()
-    for _, part in ipairs(orbitParts) do
-        part:Destroy()
-    end
-    orbitParts = {}
-    orbitKind = nil
-end
-
-local function buildOrbit(kind, count)
-    clearOrbit()
-    orbitKind = kind
-    for i = 1, count do
-        local part = new("Part", {
-            Anchored = true,
-            CanCollide = false,
-            CanQuery = false,
-            CanTouch = false,
-            Material = Enum.Material.Neon,
-            Shape = Enum.PartType.Ball,
-            Size = Vector3.new(0.35, 0.35, 0.35),
-            Color = Config.orbit.color,
-            Transparency = 0,
-        }, workspace)
-        if kind == 2 then
-            part.Size = Vector3.new(0.7, 1, 0.7)
-            part.Material = Enum.Material.SmoothPlastic
-            new("PointLight", {
-                Brightness = 2,
-                Range = 9,
-                Color = Config.orbit.color,
-            }, part)
-        elseif kind == 3 then
-            part.Size = Vector3.new(0.22, 0.22, 0.22)
-        end
-        orbitParts[i] = part
-    end
-end
-
-local function updateOrbit()
+local function updateOrbit(dt)
     if not Config.orbit.enabled then
-        if #orbitParts > 0 then
-            clearOrbit()
+        for i = #orbitParts, 1, -1 do
+            if not orbitParts[i].Parent then
+                table.remove(orbitParts, i)
+            end
         end
         return
     end
-    if orbitKind ~= Config.orbit.kind or #orbitParts ~= Config.orbit.count then
-        buildOrbit(Config.orbit.kind, Config.orbit.count)
-    end
-    local char = LocalPlayer.Character
-    local root = char and char:FindFirstChild("HumanoidRootPart")
-    if not root then
+    orbitAcc = orbitAcc + dt
+    local interval = 0.9 / math.max(Config.orbit.count, 1)
+    if orbitAcc < interval then
         return
     end
-    local t = tick()
-    local total = #orbitParts
-    for i, part in ipairs(orbitParts) do
-        local angle = (i / total) * math.pi * 2 + t * Config.orbit.speed
-        local y = math.sin(t * 2 + i) * 0.6 + 1.2
-        part.CFrame = root.CFrame * CFrame.new(
-            math.cos(angle) * Config.orbit.radius,
-            y,
-            math.sin(angle) * Config.orbit.radius
-        )
-        local col = Config.orbit.rainbow
-            and Color3.fromHSV((t * 0.3 + i / total) % 1, 0.8, 1)
-            or Config.orbit.color
-        part.Color = col
-        local light = part:FindFirstChildOfClass("PointLight")
-        if light then
-            light.Color = col
-        end
-        if Config.orbit.kind == 3 then
-            part.Transparency = 0.35 + 0.3 * math.sin(t * 3 + i)
-        end
-    end
+    orbitAcc = 0
+    spawnOrbitFx()
 end
 
 --// fov circle
@@ -2160,7 +2693,7 @@ track(RunService.RenderStepped:Connect(function(dt)
     updateTargetFx()
     updateAurora()
     updateWalk(dt)
-    updateOrbit()
+    updateOrbit(dt)
 
     fovCircle.Visible = Config.aim.enabled
     if Config.aim.enabled then
@@ -2209,6 +2742,12 @@ unload = function()
 
     pcall(disableSky)
     pcall(clearOrbit)
+    pcall(clearWalkTrail)
+    pcall(function()
+        if fxFolder then
+            fxFolder:Destroy()
+        end
+    end)
     pcall(function()
         gui:Destroy()
     end)
