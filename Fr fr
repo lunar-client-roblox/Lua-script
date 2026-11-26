@@ -1,0 +1,2232 @@
+--[[
+    Bench UI v2 — Roblox client script
+    launcher -> mobile GUI (4 tabs)
+    combat: camera / silent / hybrid aim
+    render: ESP 2D+3D, target FX, aurora sky, jump / walk / orbit effects
+    gui: fonts, colors, border, image background
+    exec: paste into executor, run.
+]]
+
+if not game:IsLoaded() then
+    game.Loaded:Wait()
+end
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local Lighting = game:GetService("Lighting")
+
+local LocalPlayer = Players.LocalPlayer
+while not LocalPlayer do
+    task.wait(0.1)
+    LocalPlayer = Players.LocalPlayer
+end
+
+local FONTS = {
+    { name = "Minecraft",   font = Enum.Font.Arcade },
+    { name = "Gotham",      font = Enum.Font.Gotham },
+    { name = "Gotham Bold", font = Enum.Font.GothamBold },
+    { name = "Gotham Black",font = Enum.Font.GothamBlack },
+    { name = "Cartoon",     font = Enum.Font.Cartoon },
+    { name = "Sci-Fi",      font = Enum.Font.SciFi },
+    { name = "Fantasy",     font = Enum.Font.Fantasy },
+    { name = "Code",        font = Enum.Font.Code },
+    { name = "Antique",     font = Enum.Font.Antique },
+    { name = "Highway",     font = Enum.Font.Highway },
+    { name = "Bodoni",      font = Enum.Font.Bodoni },
+    { name = "Garamond",    font = Enum.Font.Garamond },
+}
+
+local Config = {
+    aim = {
+        enabled = false,
+        mode = 1,
+        teamCheck = true,
+        wallCheck = false,
+        fov = 220,
+        smooth = 6,
+        part = 1,
+        predict = 0,
+    },
+    esp = {
+        box2d = true,
+        style = 3,
+        box3d = false,
+        name = true,
+        health = true,
+        distance = true,
+        tracer = false,
+        targetHighlight = true,
+        reticle = true,
+        rainbow = false,
+        color = Color3.fromRGB(0, 170, 255),
+        targetColor = Color3.fromRGB(255, 64, 64),
+    },
+    sky = {
+        enabled = false,
+        speed = 40,
+        colorA = Color3.fromRGB(40, 255, 180),
+        colorB = Color3.fromRGB(120, 90, 255),
+        rainbow = false,
+    },
+    jump = {
+        enabled = true,
+        color = Color3.fromRGB(0, 200, 255),
+        rainbow = false,
+    },
+    walk = {
+        enabled = false,
+        mode = 1,
+        color = Color3.fromRGB(255, 120, 30),
+        rainbow = false,
+    },
+    orbit = {
+        enabled = false,
+        kind = 1,
+        count = 8,
+        radius = 3.5,
+        speed = 1,
+        color = Color3.fromRGB(255, 220, 80),
+        rainbow = false,
+    },
+    gui = {
+        font = 1,
+        accent = Color3.fromRGB(0, 170, 255),
+        bg = Color3.fromRGB(18, 19, 23),
+        border = Color3.fromRGB(44, 47, 55),
+        borderWidth = 1,
+        corner = 16,
+        transparency = 0,
+        imageId = "",
+        imageTransparency = 0.85,
+    },
+}
+
+local AIM_MODES = { "Camera", "Silent", "Hybrid" }
+local AIM_PARTS = { "Head", "HumanoidRootPart", "UpperTorso", "LowerTorso" }
+local ESP_STYLES = { "Box", "Corners", "Box + Corners", "Gradient" }
+local WALK_MODES = { "Fire", "Rainbow" }
+local ORBIT_KINDS = { "Sparkles", "Lanterns", "Fireflies" }
+
+local Theme = {}
+local function syncTheme()
+    Theme.accent = Config.gui.accent
+    Theme.bg = Config.gui.bg
+    Theme.bg2 = Config.gui.bg:Lerp(Color3.new(1, 1, 1), 0.08)
+    Theme.text = Color3.fromRGB(228, 231, 238)
+    Theme.muted = Color3.fromRGB(132, 139, 152)
+    Theme.stroke = Config.gui.border
+end
+syncTheme()
+
+local EDGES = {
+    {1,2},{1,3},{1,5},{2,4},{2,6},{3,4},{3,7},{4,8},{5,6},{5,7},{6,8},{7,8},
+}
+
+local connections = {}
+local function track(conn)
+    connections[#connections + 1] = conn
+    return conn
+end
+
+local function new(class, props, parent)
+    local inst = Instance.new(class)
+    for k, v in pairs(props or {}) do
+        inst[k] = v
+    end
+    if parent then
+        inst.Parent = parent
+    end
+    return inst
+end
+
+local function corner(inst, radius, themed)
+    local c = new("UICorner", {
+        CornerRadius = UDim.new(0, radius or Config.gui.corner),
+    }, inst)
+    if themed then
+        c:SetAttribute("themedCorner", true)
+    end
+    return c
+end
+
+local function stroke(inst, color, thickness, themed)
+    local s = new("UIStroke", {
+        Color = color or Theme.stroke,
+        Thickness = thickness or Config.gui.borderWidth,
+    }, inst)
+    if themed then
+        s:SetAttribute("themedStroke", true)
+    end
+    return s
+end
+
+local function parentGui()
+    local ok, hui = pcall(function()
+        return gethui and gethui() or nil
+    end)
+    if ok and hui then
+        return hui
+    end
+    return LocalPlayer:WaitForChild("PlayerGui")
+end
+
+local function viewport()
+    local cam = workspace.CurrentCamera
+    if cam then
+        return cam.ViewportSize
+    end
+    return Vector2.new(1280, 720)
+end
+
+--// themed property registry
+local themed = {}
+local function tint(inst, prop, key)
+    themed[#themed + 1] = { inst = inst, prop = prop, key = key }
+    inst[prop] = Theme[key]
+    return inst
+end
+
+--// wipe a previous run
+if getgenv and getgenv().BenchUnload then
+    pcall(getgenv().BenchUnload)
+    getgenv().BenchUnload = nil
+end
+pcall(function()
+    for _, name in ipairs({ "BenchUI", "BenchESP", "BenchFX" }) do
+        local old = LocalPlayer.PlayerGui:FindFirstChild(name)
+        if old then
+            old:Destroy()
+        end
+    end
+end)
+
+local vp = viewport()
+local unload
+local applyTheme
+
+--// gui roots
+local gui = new("ScreenGui", {
+    Name = "BenchUI",
+    ResetOnSpawn = false,
+    IgnoreGuiInset = true,
+    DisplayOrder = 60,
+    ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+}, parentGui())
+
+local espGui = new("ScreenGui", {
+    Name = "BenchESP",
+    ResetOnSpawn = false,
+    IgnoreGuiInset = true,
+    DisplayOrder = 50,
+    ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+}, parentGui())
+
+--// launcher icon
+local icon = new("TextButton", {
+    Name = "Launcher",
+    Size = UDim2.fromOffset(56, 56),
+    Position = UDim2.fromOffset(math.max(8, math.floor(vp.X - 68)), math.floor(vp.Y * 0.18)),
+    BackgroundColor3 = Theme.bg2,
+    AutoButtonColor = false,
+    Text = "",
+    BorderSizePixel = 0,
+    ZIndex = 30,
+}, gui)
+corner(icon, 18)
+stroke(icon, Theme.accent, 1.5)
+tint(icon, "BackgroundColor3", "bg2")
+new("UIGradient", {
+    Color = ColorSequence.new(Theme.accent, Theme.accent:Lerp(Color3.new(1, 1, 1), 0.35)),
+    Rotation = 135,
+}, icon)
+
+local glyph = new("TextLabel", {
+    Size = UDim2.fromScale(1, 1),
+    BackgroundTransparency = 1,
+    Font = FONTS[Config.gui.font].font,
+    TextSize = 24,
+    TextColor3 = Color3.new(1, 1, 1),
+    Text = "K",
+    ZIndex = 31,
+}, icon)
+new("UIStroke", { Color = Theme.bg, Thickness = 2, Transparency = 0.4 }, glyph)
+
+--// panel
+local panelW = math.clamp(math.floor(vp.X * 0.93), 292, 380)
+local panelH = math.clamp(math.floor(vp.Y * 0.82), 320, 540)
+
+local panel = new("Frame", {
+    Name = "Panel",
+    Size = UDim2.fromOffset(panelW, panelH),
+    Position = UDim2.fromOffset(
+        math.floor((vp.X - panelW) / 2),
+        math.floor((vp.Y - panelH) / 2)
+    ),
+    BackgroundColor3 = Theme.bg,
+    BorderSizePixel = 0,
+    Visible = false,
+    ZIndex = 20,
+    ClipsDescendants = true,
+}, gui)
+corner(panel, Config.gui.corner, true)
+stroke(panel, Theme.stroke, Config.gui.borderWidth, true)
+local panelScale = new("UIScale", { Scale = 1 }, panel)
+
+local panelImage = new("ImageLabel", {
+    Size = UDim2.fromScale(1, 1),
+    BackgroundTransparency = 1,
+    Image = "",
+    ImageTransparency = 1,
+    ScaleType = Enum.ScaleType.Crop,
+    ZIndex = 21,
+}, panel)
+corner(panelImage, Config.gui.corner, true)
+
+local header = new("Frame", {
+    Size = UDim2.new(1, 0, 0, 58),
+    BackgroundColor3 = Theme.bg2,
+    BorderSizePixel = 0,
+    ZIndex = 22,
+}, panel)
+new("UIGradient", {
+    Color = ColorSequence.new(Theme.accent, Theme.bg2),
+    Rotation = 20,
+    Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.25),
+        NumberSequenceKeypoint.new(1, 1),
+    }),
+}, header)
+
+local title = new("TextLabel", {
+    Position = UDim2.fromOffset(18, 10),
+    Size = UDim2.new(1, -90, 0, 20),
+    BackgroundTransparency = 1,
+    Font = FONTS[Config.gui.font].font,
+    TextSize = 17,
+    TextColor3 = Theme.text,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    Text = "BENCH",
+    ZIndex = 23,
+}, header)
+tint(title, "TextColor3", "text")
+
+local subtitle = new("TextLabel", {
+    Position = UDim2.fromOffset(18, 31),
+    Size = UDim2.new(1, -90, 0, 14),
+    BackgroundTransparency = 1,
+    Font = Enum.Font.GothamMedium,
+    TextSize = 10,
+    TextColor3 = Theme.muted,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    Text = "aim · esp · sky · fx",
+    ZIndex = 23,
+}, header)
+tint(subtitle, "TextColor3", "muted")
+
+local closeBtn = new("TextButton", {
+    Size = UDim2.fromOffset(32, 32),
+    Position = UDim2.new(1, -44, 0, 12),
+    BackgroundColor3 = Theme.bg2,
+    AutoButtonColor = false,
+    Text = "×",
+    TextColor3 = Theme.muted,
+    TextSize = 18,
+    Font = Enum.Font.GothamBold,
+    BorderSizePixel = 0,
+    ZIndex = 24,
+}, header)
+corner(closeBtn, 11)
+tint(closeBtn, "TextColor3", "muted")
+
+local tabsRow = new("Frame", {
+    Position = UDim2.fromOffset(10, 64),
+    Size = UDim2.new(1, -20, 0, 34),
+    BackgroundColor3 = Theme.bg2,
+    BorderSizePixel = 0,
+    ZIndex = 22,
+}, panel)
+corner(tabsRow, 11)
+tint(tabsRow, "BackgroundColor3", "bg2")
+new("UIPadding", {
+    PaddingLeft = UDim.new(0, 3),
+    PaddingRight = UDim.new(0, 3),
+    PaddingTop = UDim.new(0, 3),
+    PaddingBottom = UDim.new(0, 3),
+}, tabsRow)
+
+local content = new("Frame", {
+    Position = UDim2.fromOffset(10, 104),
+    Size = UDim2.new(1, -20, 1, -114),
+    BackgroundTransparency = 1,
+    ZIndex = 22,
+}, panel)
+
+--// layout helpers
+local orderCounters = setmetatable({}, { __mode = "k" })
+
+local function addOrder(parent, child)
+    local n = (orderCounters[parent] or 0) + 1
+    orderCounters[parent] = n
+    child.LayoutOrder = n
+    return child
+end
+
+local function section(parent, text)
+    return addOrder(parent, new("TextLabel", {
+        Size = UDim2.new(1, 0, 0, 26),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.GothamBold,
+        TextSize = 11,
+        TextColor3 = Theme.muted,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Text = string.upper(text),
+    }, parent))
+end
+
+local function note(parent, text, height)
+    return addOrder(parent, new("TextLabel", {
+        Size = UDim2.new(1, 0, 0, height or 44),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.GothamMedium,
+        TextSize = 11,
+        TextColor3 = Theme.muted,
+        TextWrapped = true,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Top,
+        Text = text,
+    }, parent))
+end
+
+local function toggleRow(parent, label, default, onChange)
+    local row = new("Frame", {
+        Size = UDim2.new(1, 0, 0, 34),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+    }, parent)
+
+    new("TextLabel", {
+        Size = UDim2.new(1, -60, 1, 0),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.GothamMedium,
+        TextSize = 13,
+        TextColor3 = Theme.text,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Text = label,
+    }, row)
+
+    local trackBtn = new("TextButton", {
+        Size = UDim2.new(0, 40, 0, 22),
+        Position = UDim2.new(1, -40, 0.5, -11),
+        BackgroundColor3 = Theme.bg2,
+        AutoButtonColor = false,
+        Text = "",
+        BorderSizePixel = 0,
+    }, row)
+    corner(trackBtn, 11)
+    tint(trackBtn, "BackgroundColor3", "bg2")
+
+    local knob = new("Frame", {
+        Size = UDim2.fromOffset(16, 16),
+        Position = UDim2.new(0, 3, 0.5, -8),
+        BackgroundColor3 = Color3.fromRGB(160, 166, 178),
+        BorderSizePixel = 0,
+    }, trackBtn)
+    corner(knob, 8)
+
+    local state = default
+
+    local function render(animate)
+        local goal = state
+            and UDim2.new(1, -19, 0.5, -8)
+            or UDim2.new(0, 3, 0.5, -8)
+        trackBtn.BackgroundColor3 = state and Theme.accent or Theme.bg2
+        knob.BackgroundColor3 = state and Color3.new(1, 1, 1) or Color3.fromRGB(160, 166, 178)
+        if animate then
+            TweenService:Create(knob, TweenInfo.new(0.12), { Position = goal }):Play()
+        else
+            knob.Position = goal
+        end
+    end
+    render(false)
+
+    track(trackBtn.Activated:Connect(function()
+        state = not state
+        render(true)
+        if onChange then
+            onChange(state)
+        end
+    end))
+
+    return addOrder(parent, row)
+end
+
+local function sliderRow(parent, label, min, max, default, suffix, onChange)
+    local row = new("Frame", {
+        Size = UDim2.new(1, 0, 0, 50),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+    }, parent)
+
+    new("TextLabel", {
+        Size = UDim2.new(1, -70, 0, 18),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.GothamMedium,
+        TextSize = 13,
+        TextColor3 = Theme.text,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Text = label,
+    }, row)
+
+    local valueLabel = new("TextLabel", {
+        Position = UDim2.new(1, -70, 0, 0),
+        Size = UDim2.new(0, 70, 0, 18),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.GothamBold,
+        TextSize = 12,
+        TextColor3 = Theme.accent,
+        TextXAlignment = Enum.TextXAlignment.Right,
+    }, row)
+    tint(valueLabel, "TextColor3", "accent")
+
+    local bar = new("Frame", {
+        Position = UDim2.new(0, 0, 0, 28),
+        Size = UDim2.new(1, 0, 0, 10),
+        BackgroundColor3 = Theme.bg2,
+        BorderSizePixel = 0,
+    }, row)
+    corner(bar, 5)
+    tint(bar, "BackgroundColor3", "bg2")
+
+    local fill = new("Frame", {
+        Size = UDim2.new(0, 0, 1, 0),
+        BackgroundColor3 = Theme.accent,
+        BorderSizePixel = 0,
+    }, bar)
+    corner(fill, 5)
+    tint(fill, "BackgroundColor3", "accent")
+
+    local hit = new("TextButton", {
+        Position = UDim2.new(0, 0, 0, 16),
+        Size = UDim2.new(1, 0, 0, 32),
+        BackgroundTransparency = 1,
+        Text = "",
+        BorderSizePixel = 0,
+    }, row)
+
+    local value = default
+
+    local function render()
+        local a = (value - min) / math.max(max - min, 0.0001)
+        fill.Size = UDim2.new(math.clamp(a, 0, 1), 0, 1, 0)
+        valueLabel.Text = string.format("%d%s", math.floor(value + 0.5), suffix or "")
+    end
+
+    local dragging = false
+    local function apply(input)
+        local ax = bar.AbsolutePosition.X
+        local aw = math.max(bar.AbsoluteSize.X, 1)
+        local a = math.clamp((input.Position.X - ax) / aw, 0, 1)
+        value = math.floor(min + (max - min) * a + 0.5)
+        render()
+        if onChange then
+            onChange(value)
+        end
+    end
+
+    track(hit.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            apply(input)
+        end
+    end))
+    track(UIS.InputChanged:Connect(function(input)
+        if dragging
+            and (input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch) then
+            apply(input)
+        end
+    end))
+    track(UIS.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end))
+
+    render()
+    return addOrder(parent, row)
+end
+
+local function cycleRow(parent, label, options, defaultIndex, onChange)
+    local row = new("Frame", {
+        Size = UDim2.new(1, 0, 0, 36),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+    }, parent)
+
+    new("TextLabel", {
+        Size = UDim2.new(1, -140, 1, 0),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.GothamMedium,
+        TextSize = 13,
+        TextColor3 = Theme.text,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Text = label,
+    }, row)
+
+    local btn = new("TextButton", {
+        Size = UDim2.new(0, 130, 0, 28),
+        Position = UDim2.new(1, -130, 0.5, -14),
+        BackgroundColor3 = Theme.bg2,
+        AutoButtonColor = false,
+        Font = Enum.Font.GothamMedium,
+        TextSize = 12,
+        TextColor3 = Theme.text,
+        BorderSizePixel = 0,
+        Text = options[defaultIndex] or options[1],
+    }, row)
+    corner(btn, 8)
+    tint(btn, "BackgroundColor3", "bg2")
+
+    local index = defaultIndex
+    track(btn.Activated:Connect(function()
+        index = index % #options + 1
+        btn.Text = options[index]
+        if onChange then
+            onChange(index)
+        end
+    end))
+
+    return addOrder(parent, row)
+end
+
+local function buttonRow(parent, label, color, onClick)
+    local btn = new("TextButton", {
+        Size = UDim2.new(1, 0, 0, 40),
+        BackgroundColor3 = color or Theme.bg2,
+        AutoButtonColor = false,
+        Font = Enum.Font.GothamBold,
+        TextSize = 12,
+        TextColor3 = Theme.text,
+        BorderSizePixel = 0,
+        Text = label,
+    }, parent)
+    corner(btn, 10)
+    track(btn.Activated:Connect(function()
+        if onClick then
+            onClick()
+        end
+    end))
+    return addOrder(parent, btn)
+end
+
+local function textInputRow(parent, label, placeholder, default, onCommit)
+    local row = new("Frame", {
+        Size = UDim2.new(1, 0, 0, 38),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+    }, parent)
+
+    new("TextLabel", {
+        Size = UDim2.new(1, -150, 1, 0),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.GothamMedium,
+        TextSize = 13,
+        TextColor3 = Theme.text,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Text = label,
+    }, row)
+
+    local box = new("TextBox", {
+        Size = UDim2.new(0, 140, 0, 28),
+        Position = UDim2.new(1, -140, 0.5, -14),
+        BackgroundColor3 = Theme.bg2,
+        Font = Enum.Font.Code,
+        TextSize = 11,
+        TextColor3 = Theme.text,
+        PlaceholderText = placeholder or "",
+        PlaceholderColor3 = Theme.muted,
+        Text = default or "",
+        ClearTextOnFocus = false,
+        BorderSizePixel = 0,
+    }, row)
+    corner(box, 8)
+    tint(box, "BackgroundColor3", "bg2")
+
+    track(box.FocusLost:Connect(function()
+        if onCommit then
+            onCommit(box.Text)
+        end
+    end))
+
+    return addOrder(parent, row)
+end
+
+local function colorPicker(parent, label, target, field, onChange)
+    local h, s, v = Color3.toHSV(target[field])
+
+    local head = new("Frame", {
+        Size = UDim2.new(1, 0, 0, 26),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+    }, parent)
+
+    new("TextLabel", {
+        Size = UDim2.new(1, -34, 1, 0),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.GothamBold,
+        TextSize = 11,
+        TextColor3 = Theme.muted,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Text = string.upper(label),
+    }, head)
+
+    local swatch = new("Frame", {
+        Size = UDim2.fromOffset(22, 18),
+        Position = UDim2.new(1, -22, 0.5, -9),
+        BackgroundColor3 = target[field],
+        BorderSizePixel = 0,
+    }, head)
+    corner(swatch, 6)
+    stroke(swatch, Theme.stroke, 1)
+
+    local function commit()
+        target[field] = Color3.fromHSV(h, s, v)
+        swatch.BackgroundColor3 = target[field]
+        if onChange then
+            onChange(target[field])
+        end
+    end
+
+    addOrder(parent, head)
+
+    sliderRow(parent, label .. " hue", 0, 360, math.floor(h * 360 + 0.5), "°", function(x)
+        h = x / 360
+        commit()
+    end)
+    sliderRow(parent, label .. " sat", 0, 100, math.floor(s * 100 + 0.5), "%", function(x)
+        s = x / 100
+        commit()
+    end)
+    sliderRow(parent, label .. " val", 0, 100, math.floor(v * 100 + 0.5), "%", function(x)
+        v = x / 100
+        commit()
+    end)
+
+    return head
+end
+
+--// tabs
+local DANGER = Color3.fromRGB(220, 70, 70)
+
+local tabDefs = {
+    { key = "info",   label = "INFO" },
+    { key = "combat", label = "COMBAT" },
+    { key = "render", label = "RENDER" },
+    { key = "gui",    label = "GUI" },
+}
+
+local tabButtons = {}
+local pages = {}
+local activeTab = "info"
+
+local function makePage()
+    local page = new("ScrollingFrame", {
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        CanvasSize = UDim2.new(0, 0, 0, 0),
+        AutomaticCanvasSize = Enum.AutomaticSize.Y,
+        ScrollingDirection = Enum.ScrollingDirection.Y,
+        ScrollBarThickness = 2,
+        ScrollBarImageColor3 = Theme.muted,
+        ScrollBarImageTransparency = 0.4,
+        Visible = false,
+        ZIndex = 22,
+    }, content)
+    new("UIPadding", {
+        PaddingRight = UDim.new(0, 6),
+        PaddingBottom = UDim.new(0, 12),
+    }, page)
+    new("UIListLayout", {
+        Padding = UDim.new(0, 6),
+        SortOrder = Enum.SortOrder.LayoutOrder,
+    }, page)
+    return page
+end
+
+local function selectTab(key)
+    activeTab = key
+    for name, btn in pairs(tabButtons) do
+        local active = name == key
+        btn.BackgroundColor3 = active and Theme.accent or Theme.bg2
+        btn.TextColor3 = active and Color3.new(1, 1, 1) or Theme.muted
+        pages[name].Visible = active
+    end
+end
+
+for i, def in ipairs(tabDefs) do
+    local btn = new("TextButton", {
+        Size = UDim2.new(0.25, -2, 1, 0),
+        Position = UDim2.new((i - 1) * 0.25, 0, 0, 0),
+        BackgroundColor3 = Theme.bg2,
+        AutoButtonColor = false,
+        Font = Enum.Font.GothamBold,
+        TextSize = 10,
+        TextColor3 = Theme.muted,
+        Text = def.label,
+        BorderSizePixel = 0,
+        ZIndex = 23,
+    }, tabsRow)
+    corner(btn, 9)
+    tabButtons[def.key] = btn
+    pages[def.key] = makePage()
+    track(btn.Activated:Connect(function()
+        selectTab(def.key)
+    end))
+end
+
+--// INFO page
+addOrder(pages.info, new("TextLabel", {
+    Size = UDim2.new(1, 0, 0, 26),
+    BackgroundTransparency = 1,
+    Font = Enum.Font.GothamBlack,
+    TextSize = 17,
+    TextColor3 = Theme.text,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    Text = "BENCH v2",
+}, pages.info))
+
+note(pages.info,
+    "Script client cho Roblox. Kéo icon để di chuyển, chạm để mở bảng.\n\n"
+    .. "COMBAT — aim camera / silent / hybrid, FOV, smooth, prediction.\n"
+    .. "RENDER — ESP 2D + 3D, target FX, aurora sky, jump / walk / orbit fx.\n"
+    .. "GUI — font (có Minecraft), màu nâng cao, viền, ảnh nền theo ID.", 96)
+
+note(pages.info,
+    "Silent aim cần executor có hookmetamethod. Không có thì tự chạy camera aim.\n"
+    .. "ESP 3D đọc Model:GetBoundingBox mỗi frame.", 44)
+
+buttonRow(pages.info, "UNLOAD", Color3.fromRGB(58, 26, 30), function()
+    if unload then
+        unload()
+    end
+end)
+
+note(pages.info, "v2.0 · mobile build · no key", 16)
+
+--// COMBAT page
+section(pages.combat, "aimbot")
+toggleRow(pages.combat, "Enable aim", Config.aim.enabled, function(v)
+    Config.aim.enabled = v
+end)
+cycleRow(pages.combat, "Aim mode", AIM_MODES, Config.aim.mode, function(i)
+    Config.aim.mode = i
+end)
+toggleRow(pages.combat, "Team check", Config.aim.teamCheck, function(v)
+    Config.aim.teamCheck = v
+end)
+toggleRow(pages.combat, "Wall check", Config.aim.wallCheck, function(v)
+    Config.aim.wallCheck = v
+end)
+sliderRow(pages.combat, "FOV", 80, 600, Config.aim.fov, "px", function(v)
+    Config.aim.fov = v
+end)
+sliderRow(pages.combat, "Smooth", 1, 20, Config.aim.smooth, "", function(v)
+    Config.aim.smooth = v
+end)
+sliderRow(pages.combat, "Prediction", 0, 30, Config.aim.predict, "%", function(v)
+    Config.aim.predict = v
+end)
+cycleRow(pages.combat, "Target part", AIM_PARTS, Config.aim.part, function(i)
+    Config.aim.part = i
+end)
+
+note(pages.combat,
+    "Camera — xoay camera vào mục tiêu. Silent — hook Mouse.Hit/Target/UnitRay, không xoay camera. "
+    .. "Hybrid — silent + camera nhẹ. Smooth 1 = bám cứng, 20 = mượt.", 58)
+
+--// RENDER page
+section(pages.render, "esp")
+toggleRow(pages.render, "2D box", Config.esp.box2d, function(v)
+    Config.esp.box2d = v
+end)
+cycleRow(pages.render, "2D style", ESP_STYLES, Config.esp.style, function(i)
+    Config.esp.style = i
+end)
+toggleRow(pages.render, "3D box", Config.esp.box3d, function(v)
+    Config.esp.box3d = v
+end)
+toggleRow(pages.render, "Name", Config.esp.name, function(v)
+    Config.esp.name = v
+end)
+toggleRow(pages.render, "Health bar", Config.esp.health, function(v)
+    Config.esp.health = v
+end)
+toggleRow(pages.render, "Distance", Config.esp.distance, function(v)
+    Config.esp.distance = v
+end)
+toggleRow(pages.render, "Tracer", Config.esp.tracer, function(v)
+    Config.esp.tracer = v
+end)
+toggleRow(pages.render, "Rainbow esp", Config.esp.rainbow, function(v)
+    Config.esp.rainbow = v
+end)
+colorPicker(pages.render, "ESP color", Config.esp, "color")
+
+section(pages.render, "target fx")
+toggleRow(pages.render, "Highlight", Config.esp.targetHighlight, function(v)
+    Config.esp.targetHighlight = v
+end)
+toggleRow(pages.render, "Reticle", Config.esp.reticle, function(v)
+    Config.esp.reticle = v
+end)
+colorPicker(pages.render, "Target color", Config.esp, "targetColor")
+
+section(pages.render, "sky — aurora")
+toggleRow(pages.render, "Aurora sky", Config.sky.enabled, function(v)
+    Config.sky.enabled = v
+end)
+toggleRow(pages.render, "Rainbow aurora", Config.sky.rainbow, function(v)
+    Config.sky.rainbow = v
+end)
+sliderRow(pages.render, "Sky speed", 0, 100, Config.sky.speed, "", function(v)
+    Config.sky.speed = v
+end)
+colorPicker(pages.render, "Aurora A", Config.sky, "colorA")
+colorPicker(pages.render, "Aurora B", Config.sky, "colorB")
+
+section(pages.render, "jump fx")
+toggleRow(pages.render, "Jump ring", Config.jump.enabled, function(v)
+    Config.jump.enabled = v
+end)
+toggleRow(pages.render, "Rainbow jump", Config.jump.rainbow, function(v)
+    Config.jump.rainbow = v
+end)
+colorPicker(pages.render, "Jump color", Config.jump, "color")
+
+section(pages.render, "walk fx")
+toggleRow(pages.render, "Walk trail", Config.walk.enabled, function(v)
+    Config.walk.enabled = v
+end)
+cycleRow(pages.render, "Walk style", WALK_MODES, Config.walk.mode, function(i)
+    Config.walk.mode = i
+end)
+toggleRow(pages.render, "Rainbow walk", Config.walk.rainbow, function(v)
+    Config.walk.rainbow = v
+end)
+colorPicker(pages.render, "Walk color", Config.walk, "color")
+
+section(pages.render, "orbit fx")
+toggleRow(pages.render, "Orbit", Config.orbit.enabled, function(v)
+    Config.orbit.enabled = v
+end)
+cycleRow(pages.render, "Orbit style", ORBIT_KINDS, Config.orbit.kind, function(i)
+    Config.orbit.kind = i
+end)
+sliderRow(pages.render, "Orbit count", 3, 20, Config.orbit.count, "", function(v)
+    Config.orbit.count = v
+end)
+sliderRow(pages.render, "Orbit radius", 2, 10, math.floor(Config.orbit.radius), "", function(v)
+    Config.orbit.radius = v
+end)
+sliderRow(pages.render, "Orbit speed", 0, 10, math.floor(Config.orbit.speed), "", function(v)
+    Config.orbit.speed = v
+end)
+toggleRow(pages.render, "Rainbow orbit", Config.orbit.rainbow, function(v)
+    Config.orbit.rainbow = v
+end)
+colorPicker(pages.render, "Orbit color", Config.orbit, "color")
+
+--// GUI page
+section(pages.gui, "custom gui")
+cycleRow(pages.gui, "Font", (function()
+    local names = {}
+    for i, f in ipairs(FONTS) do
+        names[i] = f.name
+    end
+    return names
+end)(), Config.gui.font, function(i)
+    Config.gui.font = i
+    applyTheme()
+end)
+
+local presetRow = new("Frame", {
+    Size = UDim2.new(1, 0, 0, 34),
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+}, pages.gui)
+addOrder(pages.gui, presetRow)
+
+local PRESETS = {
+    { accent = Color3.fromRGB(0, 170, 255), bg = Color3.fromRGB(18, 19, 23), border = Color3.fromRGB(44, 47, 55) },
+    { accent = Color3.fromRGB(168, 96, 255), bg = Color3.fromRGB(20, 16, 30), border = Color3.fromRGB(58, 44, 78) },
+    { accent = Color3.fromRGB(255, 72, 96),  bg = Color3.fromRGB(24, 14, 18), border = Color3.fromRGB(70, 36, 44) },
+    { accent = Color3.fromRGB(64, 230, 140), bg = Color3.fromRGB(12, 22, 18), border = Color3.fromRGB(36, 62, 50) },
+    { accent = Color3.fromRGB(235, 235, 245), bg = Color3.fromRGB(14, 14, 16), border = Color3.fromRGB(60, 60, 68) },
+}
+
+for i, preset in ipairs(PRESETS) do
+    local btn = new("TextButton", {
+        Size = UDim2.new(0.2, -6, 1, 0),
+        Position = UDim2.new((i - 1) * 0.2, 0, 0, 0),
+        BackgroundColor3 = preset.accent,
+        AutoButtonColor = false,
+        Text = "",
+        BorderSizePixel = 0,
+    }, presetRow)
+    corner(btn, 8)
+    track(btn.Activated:Connect(function()
+        Config.gui.accent = preset.accent
+        Config.gui.bg = preset.bg
+        Config.gui.border = preset.border
+        applyTheme()
+    end))
+end
+
+colorPicker(pages.gui, "Accent", Config.gui, "accent", function()
+    applyTheme()
+end)
+colorPicker(pages.gui, "Background", Config.gui, "bg", function()
+    applyTheme()
+end)
+colorPicker(pages.gui, "Border color", Config.gui, "border", function()
+    applyTheme()
+end)
+
+sliderRow(pages.gui, "Border width", 0, 6, Config.gui.borderWidth, "px", function(v)
+    Config.gui.borderWidth = v
+    applyTheme()
+end)
+sliderRow(pages.gui, "Corner", 0, 30, Config.gui.corner, "px", function(v)
+    Config.gui.corner = v
+    applyTheme()
+end)
+sliderRow(pages.gui, "Panel opacity", 0, 100, math.floor((1 - Config.gui.transparency) * 100), "%", function(v)
+    Config.gui.transparency = 1 - v / 100
+    applyTheme()
+end)
+
+textInputRow(pages.gui, "Image id", "rbxassetid", Config.gui.imageId, function(text)
+    Config.gui.imageId = text
+    applyTheme()
+end)
+sliderRow(pages.gui, "Image fade", 0, 100, math.floor((1 - Config.gui.imageTransparency) * 100), "%", function(v)
+    Config.gui.imageTransparency = 1 - v / 100
+    applyTheme()
+end)
+
+buttonRow(pages.gui, "RESET GUI", Color3.fromRGB(40, 32, 20), function()
+    Config.gui.font = 1
+    Config.gui.accent = Color3.fromRGB(0, 170, 255)
+    Config.gui.bg = Color3.fromRGB(18, 19, 23)
+    Config.gui.border = Color3.fromRGB(44, 47, 55)
+    Config.gui.borderWidth = 1
+    Config.gui.corner = 16
+    Config.gui.transparency = 0
+    Config.gui.imageId = ""
+    Config.gui.imageTransparency = 0.85
+    applyTheme()
+end)
+
+--// theme application
+applyTheme = function()
+    syncTheme()
+
+    for _, entry in ipairs(themed) do
+        local inst = entry.inst
+        if inst and inst.Parent then
+            pcall(function()
+                inst[entry.prop] = Theme[entry.key]
+            end)
+        end
+    end
+
+    panel.BackgroundColor3 = Theme.bg
+    panel.BackgroundTransparency = Config.gui.transparency
+
+    for _, d in ipairs(gui:GetDescendants()) do
+        if d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox") then
+            pcall(function()
+                d.Font = FONTS[Config.gui.font].font
+            end)
+        end
+    end
+
+    for _, d in ipairs(gui:GetDescendants()) do
+        if d:IsA("UICorner") and d:GetAttribute("themedCorner") then
+            d.CornerRadius = UDim.new(0, Config.gui.corner)
+        end
+        if d:IsA("UIStroke") and d:GetAttribute("themedStroke") then
+            d.Color = Theme.stroke
+            d.Thickness = Config.gui.borderWidth
+        end
+    end
+
+    local grad = header:FindFirstChildOfClass("UIGradient")
+    if grad then
+        grad.Color = ColorSequence.new(Theme.accent, Theme.bg2)
+    end
+    local iconGrad = icon:FindFirstChildOfClass("UIGradient")
+    if iconGrad then
+        iconGrad.Color = ColorSequence.new(Theme.accent, Theme.accent:Lerp(Color3.new(1, 1, 1), 0.35))
+    end
+
+    local id = string.gsub(Config.gui.imageId or "", "%s", "")
+    id = string.gsub(id, "rbxassetid://", "")
+    id = string.gsub(id, "rbxassetid:", "")
+    if id ~= "" then
+        panelImage.Image = "rbxassetid://" .. id
+        panelImage.ImageTransparency = Config.gui.imageTransparency
+    else
+        panelImage.Image = ""
+        panelImage.ImageTransparency = 1
+    end
+
+    selectTab(activeTab)
+end
+
+--// panel behaviour
+local function setPanel(open)
+    if open then
+        panel.Visible = true
+        panelScale.Scale = 0.88
+        TweenService:Create(
+            panelScale,
+            TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+            { Scale = 1 }
+        ):Play()
+    else
+        panel.Visible = false
+    end
+end
+
+local function clampToScreen(frame)
+    local pos = frame.Position
+    local size = frame.AbsoluteSize
+    local s = viewport()
+    frame.Position = UDim2.fromOffset(
+        math.clamp(pos.X.Offset, 0, math.max(0, s.X - size.X)),
+        math.clamp(pos.Y.Offset, 0, math.max(0, s.Y - size.Y))
+    )
+end
+
+local function draggable(frame, handle, onTap)
+    local dragging, startInput, startPos, moved = false, nil, nil, 0
+
+    track(handle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            startInput = input.Position
+            startPos = frame.Position
+            moved = 0
+        end
+    end))
+
+    track(UIS.InputChanged:Connect(function(input)
+        if not dragging then
+            return
+        end
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch then
+            local delta = input.Position - startInput
+            moved = math.max(moved, delta.Magnitude)
+            frame.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
+        end
+    end))
+
+    track(UIS.InputEnded:Connect(function(input)
+        if not dragging then
+            return
+        end
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+            clampToScreen(frame)
+            if onTap and moved < 8 then
+                onTap()
+            end
+        end
+    end))
+end
+
+draggable(icon, icon, function()
+    setPanel(not panel.Visible)
+end)
+draggable(panel, header)
+
+track(closeBtn.Activated:Connect(function()
+    setPanel(false)
+end))
+
+selectTab("info")
+applyTheme()
+setPanel(false)
+
+--// esp
+local espCache = {}
+local currentTarget = nil
+
+local function rainbowColor(base, speed, offset)
+    if not Config.esp.rainbow then
+        return base
+    end
+    local h = (tick() * (speed or 0.15) + (offset or 0)) % 1
+    return Color3.fromHSV(h, 0.85, 1)
+end
+
+local function setLine(line, a, b)
+    local dx, dy = b.X - a.X, b.Y - a.Y
+    local len = math.sqrt(dx * dx + dy * dy)
+    if len < 2 then
+        line.Visible = false
+        return
+    end
+    line.Visible = true
+    line.Position = UDim2.fromOffset((a.X + b.X) * 0.5, (a.Y + b.Y) * 0.5)
+    line.Size = UDim2.fromOffset(len, 1.5)
+    line.Rotation = math.deg(math.atan2(dy, dx))
+end
+
+local CORNER_DEFS = {
+    { cx = 0, cy = 0 }, { cx = 1, cy = 0 },
+    { cx = 0, cy = 1 }, { cx = 1, cy = 1 },
+}
+
+local function createEsp(player)
+    if player == LocalPlayer or espCache[player] then
+        return
+    end
+
+    local holder = new("Frame", {
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        Visible = false,
+    }, espGui)
+
+    local box = new("Frame", {
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        Visible = false,
+    }, holder)
+    local boxStroke = new("UIStroke", { Color = Config.esp.color, Thickness = 1.5 }, box)
+    local boxGrad = new("UIGradient", {
+        Color = ColorSequence.new(Config.esp.color, Config.esp.targetColor),
+        Rotation = 90,
+        Enabled = false,
+    }, boxStroke)
+
+    local corners = {}
+    for _, def in ipairs(CORNER_DEFS) do
+        for k = 1, 2 do
+            corners[#corners + 1] = {
+                frame = new("Frame", {
+                    BackgroundColor3 = Config.esp.color,
+                    BorderSizePixel = 0,
+                    Visible = false,
+                }, holder),
+                cx = def.cx,
+                cy = def.cy,
+                horizontal = (k == 1),
+            }
+        end
+    end
+
+    local headDot = new("Frame", {
+        Size = UDim2.fromOffset(4, 4),
+        BackgroundColor3 = Config.esp.color,
+        BorderSizePixel = 0,
+        Visible = false,
+    }, holder)
+    corner(headDot, 2)
+
+    local tracer = new("Frame", {
+        BackgroundColor3 = Config.esp.color,
+        BorderSizePixel = 0,
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Visible = false,
+    }, holder)
+
+    local nameLabel = new("TextLabel", {
+        BackgroundTransparency = 1,
+        Font = Enum.Font.GothamBold,
+        TextSize = 12,
+        TextColor3 = Theme.text,
+        TextStrokeTransparency = 0.35,
+        AnchorPoint = Vector2.new(0.5, 1),
+        Size = UDim2.fromOffset(240, 14),
+        Visible = false,
+    }, holder)
+
+    local distLabel = new("TextLabel", {
+        BackgroundTransparency = 1,
+        Font = Enum.Font.GothamMedium,
+        TextSize = 11,
+        TextColor3 = Theme.muted,
+        TextStrokeTransparency = 0.5,
+        AnchorPoint = Vector2.new(0.5, 0),
+        Size = UDim2.fromOffset(240, 14),
+        Visible = false,
+    }, holder)
+
+    local healthBg = new("Frame", {
+        BackgroundColor3 = Color3.fromRGB(10, 11, 14),
+        BorderSizePixel = 0,
+        Visible = false,
+    }, holder)
+    corner(healthBg, 2)
+
+    local healthFill = new("Frame", {
+        BackgroundColor3 = Color3.fromRGB(80, 220, 120),
+        BorderSizePixel = 0,
+        Size = UDim2.new(1, 0, 1, 0),
+    }, healthBg)
+    corner(healthFill, 2)
+
+    local lines = {}
+    for i = 1, 12 do
+        lines[i] = new("Frame", {
+            BackgroundColor3 = Config.esp.color,
+            BorderSizePixel = 0,
+            AnchorPoint = Vector2.new(0.5, 0.5),
+            Visible = false,
+        }, holder)
+    end
+
+    espCache[player] = {
+        holder = holder,
+        box = box,
+        boxStroke = boxStroke,
+        boxGrad = boxGrad,
+        corners = corners,
+        headDot = headDot,
+        tracer = tracer,
+        name = nameLabel,
+        dist = distLabel,
+        healthBg = healthBg,
+        healthFill = healthFill,
+        lines = lines,
+        offset = (player.UserId % 100) / 100,
+    }
+end
+
+local function hideLines(ui)
+    for i = 1, 12 do
+        ui.lines[i].Visible = false
+    end
+end
+
+local function updateEsp()
+    local cam = workspace.CurrentCamera
+    if not cam then
+        return
+    end
+    local screen = cam.ViewportSize
+
+    for player, ui in pairs(espCache) do
+        local char = player.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        local head = char and char:FindFirstChild("Head")
+        local alive = char ~= nil
+            and hum ~= nil
+            and hum.Health > 0
+            and root ~= nil
+            and head ~= nil
+
+        if not alive then
+            ui.holder.Visible = false
+        else
+            local top = cam:WorldToViewportPoint(head.Position + Vector3.new(0, 0.6, 0))
+            local bottom = cam:WorldToViewportPoint(root.Position - Vector3.new(0, 2.6, 0))
+            local h = bottom.Y - top.Y
+
+            if top.Z <= 0 or bottom.Z <= 0 or h < 8 then
+                ui.holder.Visible = false
+            else
+                ui.holder.Visible = true
+
+                local col = rainbowColor(Config.esp.color, 0.15, ui.offset)
+                local w = h * 0.52
+                local cx = (top.X + bottom.X) * 0.5
+                local left = cx - w * 0.5
+                local right = left + w
+                local boxTop = top.Y
+                local boxBottom = top.Y + h
+                local style = Config.esp.style
+
+                local showBox = Config.esp.box2d and (style == 1 or style == 3 or style == 4)
+                ui.box.Visible = showBox
+                if showBox then
+                    ui.box.Position = UDim2.fromOffset(left, boxTop)
+                    ui.box.Size = UDim2.fromOffset(w, h)
+                    ui.boxStroke.Color = col
+                    ui.boxStroke.Thickness = style == 4 and 2 or 1.5
+                    ui.boxGrad.Enabled = style == 4
+                    ui.boxGrad.Color = ColorSequence.new(
+                        col,
+                        rainbowColor(Config.esp.targetColor, 0.15, ui.offset + 0.5)
+                    )
+                end
+
+                local showCorners = Config.esp.box2d and (style == 2 or style == 3)
+                if showCorners then
+                    local len = math.clamp(w * 0.24, 6, 18)
+                    for _, c in ipairs(ui.corners) do
+                        local f = c.frame
+                        f.Visible = true
+                        f.BackgroundColor3 = col
+                        if c.horizontal then
+                            f.Size = UDim2.fromOffset(len, 2)
+                            f.Position = UDim2.fromOffset(
+                                c.cx == 0 and left or right - len,
+                                c.cy == 0 and boxTop or boxBottom - 2
+                            )
+                        else
+                            f.Size = UDim2.fromOffset(2, len)
+                            f.Position = UDim2.fromOffset(
+                                c.cx == 0 and left or right - 2,
+                                c.cy == 0 and boxTop or boxBottom - len
+                            )
+                        end
+                    end
+                else
+                    for _, c in ipairs(ui.corners) do
+                        c.frame.Visible = false
+                    end
+                end
+
+                ui.headDot.Visible = Config.esp.box2d
+                if Config.esp.box2d then
+                    ui.headDot.Position = UDim2.fromOffset(cx - 2, top.Y - 5)
+                    ui.headDot.BackgroundColor3 = col
+                end
+
+                ui.tracer.Visible = Config.esp.tracer
+                if Config.esp.tracer then
+                    local a = Vector2.new(screen.X * 0.5, screen.Y)
+                    local b = Vector2.new(cx, boxBottom)
+                    local dx, dy = b.X - a.X, b.Y - a.Y
+                    local len = math.sqrt(dx * dx + dy * dy)
+                    if len > 2 then
+                        ui.tracer.Position = UDim2.fromOffset((a.X + b.X) * 0.5, (a.Y + b.Y) * 0.5)
+                        ui.tracer.Size = UDim2.fromOffset(len, 1)
+                        ui.tracer.Rotation = math.deg(math.atan2(dy, dx))
+                        ui.tracer.BackgroundColor3 = col
+                    else
+                        ui.tracer.Visible = false
+                    end
+                end
+
+                ui.name.Visible = Config.esp.name
+                ui.name.Text = player.Name
+                ui.name.Position = UDim2.fromOffset(cx, boxTop - 3)
+                ui.name.TextColor3 = col
+
+                local dist = (cam.CFrame.Position - root.Position).Magnitude
+                ui.dist.Visible = Config.esp.distance
+                ui.dist.Text = string.format("%d m", math.floor(dist + 0.5))
+                ui.dist.Position = UDim2.fromOffset(cx, boxBottom + 3)
+                ui.dist.TextColor3 = Theme.muted
+
+                local hp = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
+                ui.healthBg.Visible = Config.esp.health
+                ui.healthBg.Position = UDim2.fromOffset(left - 6, boxTop)
+                ui.healthBg.Size = UDim2.fromOffset(3, h)
+                ui.healthFill.Size = UDim2.new(1, 0, hp, 0)
+                ui.healthFill.Position = UDim2.new(0, 0, 1 - hp, 0)
+                ui.healthFill.BackgroundColor3 =
+                    Color3.fromRGB(255, 60, 60):Lerp(Color3.fromRGB(80, 220, 120), hp)
+
+                if Config.esp.box3d then
+                    local ok, bcf, bsize = pcall(char.GetBoundingBox, char)
+                    if ok and bcf and bsize then
+                        local pts = {}
+                        local valid = true
+                        for i = 1, 8 do
+                            local sx = (i % 2 == 0) and 0.5 or -0.5
+                            local sy = (math.floor(i / 2) % 2 == 0) and 0.5 or -0.5
+                            local sz = (math.floor(i / 4) % 2 == 0) and 0.5 or -0.5
+                            local world = bcf * Vector3.new(
+                                bsize.X * sx, bsize.Y * sy, bsize.Z * sz
+                            )
+                            local sp = cam:WorldToViewportPoint(world)
+                            if sp.Z <= 0 then
+                                valid = false
+                                break
+                            end
+                            pts[i] = Vector2.new(sp.X, sp.Y)
+                        end
+                        if valid then
+                            for idx, edge in ipairs(EDGES) do
+                                ui.lines[idx].BackgroundColor3 = col
+                                setLine(ui.lines[idx], pts[edge[1]], pts[edge[2]])
+                            end
+                        else
+                            hideLines(ui)
+                        end
+                    else
+                        hideLines(ui)
+                    end
+                else
+                    hideLines(ui)
+                end
+            end
+        end
+    end
+end
+
+--// target fx
+local targetHighlight = new("Highlight", {
+    FillColor = Config.esp.targetColor,
+    OutlineColor = Color3.new(1, 1, 1),
+    FillTransparency = 0.65,
+    OutlineTransparency = 0,
+    DepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
+    Enabled = false,
+}, workspace)
+
+local reticle = new("Frame", {
+    Size = UDim2.fromOffset(52, 52),
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    Visible = false,
+}, espGui)
+local reticleScale = new("UIScale", { Scale = 1 }, reticle)
+
+local function bracket(sx, sy)
+    local hx = sx > 0 and 1 or 0
+    local hy = sy > 0 and 1 or 0
+    new("Frame", {
+        Size = UDim2.fromOffset(14, 2),
+        Position = UDim2.new(hx, sx > 0 and -14 or 0, hy, sy > 0 and -2 or 0),
+        BackgroundColor3 = Config.esp.targetColor,
+        BorderSizePixel = 0,
+    }, reticle)
+    new("Frame", {
+        Size = UDim2.fromOffset(2, 14),
+        Position = UDim2.new(hx, sx > 0 and -2 or 0, hy, sy > 0 and -14 or 0),
+        BackgroundColor3 = Config.esp.targetColor,
+        BorderSizePixel = 0,
+    }, reticle)
+end
+bracket(-1, -1)
+bracket(1, -1)
+bracket(-1, 1)
+bracket(1, 1)
+
+local reticleDot = new("Frame", {
+    Size = UDim2.fromOffset(3, 3),
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    Position = UDim2.fromScale(0.5, 0.5),
+    BackgroundColor3 = Color3.new(1, 1, 1),
+    BorderSizePixel = 0,
+}, reticle)
+corner(reticleDot, 2)
+
+local pulseRing = new("Frame", {
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    Size = UDim2.fromOffset(40, 40),
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    Visible = false,
+}, espGui)
+new("UICorner", { CornerRadius = UDim.new(1, 0) }, pulseRing)
+local ringStroke = new("UIStroke", {
+    Color = Config.esp.targetColor,
+    Thickness = 2,
+    Transparency = 0.3,
+}, pulseRing)
+
+local targetTag = new("TextLabel", {
+    Size = UDim2.fromOffset(120, 14),
+    AnchorPoint = Vector2.new(0.5, 1),
+    BackgroundTransparency = 1,
+    Font = Enum.Font.GothamBlack,
+    TextSize = 11,
+    TextColor3 = Config.esp.targetColor,
+    TextStrokeTransparency = 0.2,
+    Text = "TARGET",
+    Visible = false,
+}, espGui)
+
+local function updateTargetFx()
+    local target = currentTarget
+    local col = Config.esp.targetColor
+    if target and target.Parent then
+        if Config.esp.targetHighlight then
+            targetHighlight.Adornee = target.Parent
+            targetHighlight.Enabled = true
+            targetHighlight.FillColor = col
+            targetHighlight.FillTransparency = 0.55 + 0.2 * math.sin(tick() * 6)
+            targetHighlight.OutlineColor = col:Lerp(Color3.new(1, 1, 1), 0.6)
+        else
+            targetHighlight.Enabled = false
+        end
+
+        local head = target.Parent:FindFirstChild("Head") or target
+        local cam = workspace.CurrentCamera
+        local sp = cam and cam:WorldToViewportPoint(head.Position) or Vector3.zero
+
+        if Config.esp.reticle and sp.Z > 0 then
+            reticle.Visible = true
+            reticle.Position = UDim2.fromOffset(sp.X, sp.Y)
+            reticle.Rotation = (tick() * 60) % 360
+            reticleScale.Scale = 0.92 + 0.1 * math.sin(tick() * 7)
+            for _, child in ipairs(reticle:GetChildren()) do
+                if child:IsA("Frame") then
+                    child.BackgroundColor3 = col
+                end
+            end
+        else
+            reticle.Visible = false
+        end
+
+        local root = target.Parent:FindFirstChild("HumanoidRootPart")
+        if root and sp.Z > 0 then
+            local feet = cam:WorldToViewportPoint(root.Position - Vector3.new(0, 2.8, 0))
+            if feet.Z > 0 then
+                pulseRing.Visible = true
+                local pulse = 1 + 0.25 * math.sin(tick() * 5)
+                local size = 46 * pulse
+                pulseRing.Position = UDim2.fromOffset(feet.X, feet.Y)
+                pulseRing.Size = UDim2.fromOffset(size, size * 0.4)
+                ringStroke.Color = col
+                ringStroke.Transparency = 0.2 + 0.3 * math.sin(tick() * 5)
+            else
+                pulseRing.Visible = false
+            end
+        else
+            pulseRing.Visible = false
+        end
+
+        if Config.esp.reticle and sp.Z > 0 then
+            targetTag.Visible = true
+            targetTag.Position = UDim2.fromOffset(sp.X, sp.Y - 32)
+            targetTag.TextColor3 = col
+        else
+            targetTag.Visible = false
+        end
+    else
+        targetHighlight.Enabled = false
+        reticle.Visible = false
+        pulseRing.Visible = false
+        targetTag.Visible = false
+    end
+end
+
+--// aim
+local mouse = LocalPlayer:GetMouse()
+local silentTarget = nil
+local silentReady = false
+local silentOld = nil
+
+local function installSilent()
+    if silentReady then
+        return true
+    end
+    if not (hookmetamethod and getrawmetatable) then
+        return false
+    end
+    pcall(function()
+        local old
+        old = hookmetamethod(game, "__index", function(self, key)
+            if self == mouse and silentTarget and silentTarget.Parent then
+                if key == "Hit" then
+                    return CFrame.new(silentTarget.Position)
+                elseif key == "Target" then
+                    return silentTarget
+                elseif key == "UnitRay" then
+                    local cam = workspace.CurrentCamera
+                    local origin = cam.CFrame.Position
+                    return Ray.new(origin, (silentTarget.Position - origin).Unit)
+                elseif key == "Origin" then
+                    return workspace.CurrentCamera.CFrame.Position
+                end
+            end
+            return old(self, key)
+        end)
+        silentOld = old
+        silentReady = true
+    end)
+    return silentReady
+end
+
+local function isBlocked(part, char)
+    local cam = workspace.CurrentCamera
+    if not cam then
+        return false
+    end
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    local filter = {}
+    if LocalPlayer.Character then
+        filter[#filter + 1] = LocalPlayer.Character
+    end
+    if char then
+        filter[#filter + 1] = char
+    end
+    params.FilterDescendantsInstances = filter
+    local origin = cam.CFrame.Position
+    return workspace:Raycast(origin, part.Position - origin, params) ~= nil
+end
+
+local function partOf(char)
+    if not char then
+        return nil
+    end
+    local name = AIM_PARTS[Config.aim.part] or "Head"
+    local part = char:FindFirstChild(name)
+    if part and part:IsA("BasePart") then
+        return part
+    end
+    part = char:FindFirstChild("Head")
+    if part and part:IsA("BasePart") then
+        return part
+    end
+    return char:FindFirstChild("HumanoidRootPart")
+end
+
+local function findTarget()
+    local cam = workspace.CurrentCamera
+    if not cam then
+        return nil
+    end
+    local center = Vector2.new(cam.ViewportSize.X * 0.5, cam.ViewportSize.Y * 0.5)
+    local best, bestDist = nil, Config.aim.fov * 0.5
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then
+            local char = plr.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if char and hum and hum.Health > 0 then
+                local teamOk = true
+                if Config.aim.teamCheck and plr.Team and LocalPlayer.Team then
+                    teamOk = plr.Team ~= LocalPlayer.Team
+                end
+                if teamOk then
+                    local part = partOf(char)
+                    if part then
+                        local sp = cam:WorldToViewportPoint(part.Position)
+                        if sp.Z > 0 then
+                            local d = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+                            if d < bestDist
+                                and (not Config.aim.wallCheck
+                                or not isBlocked(part, char)) then
+                                best, bestDist = part, d
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
+local function applyAim(part, factor)
+    local cam = workspace.CurrentCamera
+    if not cam then
+        return
+    end
+    local pos = part.Position
+    if Config.aim.predict > 0 then
+        pos = pos + part.AssemblyLinearVelocity * (Config.aim.predict / 100)
+    end
+    local goal = CFrame.lookAt(cam.CFrame.Position, pos)
+    local alpha = math.clamp(1 / math.max(Config.aim.smooth, 1), 0.03, 1) * (factor or 1)
+    cam.CFrame = cam.CFrame:Lerp(goal, alpha)
+end
+
+--// sky
+local skyState = nil
+local auroraBeams = {}
+
+local function makeAurora()
+    auroraBeams = {}
+    for i = 1, 3 do
+        local p0 = new("Part", {
+            Anchored = true,
+            CanCollide = false,
+            CanQuery = false,
+            CanTouch = false,
+            Transparency = 1,
+            Size = Vector3.new(1, 1, 1),
+        }, workspace)
+        local p1 = new("Part", {
+            Anchored = true,
+            CanCollide = false,
+            CanQuery = false,
+            CanTouch = false,
+            Transparency = 1,
+            Size = Vector3.new(1, 1, 1),
+        }, workspace)
+        local a0 = new("Attachment", {}, p0)
+        local a1 = new("Attachment", {}, p1)
+        new("Beam", {
+            Attachment0 = a0,
+            Attachment1 = a1,
+            FaceCamera = true,
+            Segments = 12,
+            LightEmission = 0.8,
+            LightInfluence = 0,
+            Width0 = 160,
+            Width1 = 260,
+            Color = ColorSequence.new(Config.sky.colorA, Config.sky.colorB),
+            Transparency = NumberSequence.new({
+                NumberSequenceKeypoint.new(0, 1),
+                NumberSequenceKeypoint.new(0.25, 0.55),
+                NumberSequenceKeypoint.new(0.65, 0.7),
+                NumberSequenceKeypoint.new(1, 1),
+            }),
+        }, p0)
+        auroraBeams[i] = { p0 = p0, p1 = p1 }
+    end
+end
+
+local function enableSky()
+    if skyState then
+        return
+    end
+    local oldSky = Lighting:FindFirstChildOfClass("Sky")
+    local oldAtmo = Lighting:FindFirstChildOfClass("Atmosphere")
+    skyState = {
+        sky = oldSky,
+        atmo = oldAtmo,
+        clock = Lighting.ClockTime,
+        ambient = Lighting.Ambient,
+        outdoor = Lighting.OutdoorAmbient,
+        brightness = Lighting.Brightness,
+        fogEnd = Lighting.FogEnd,
+    }
+    if oldSky then
+        oldSky.Parent = nil
+    end
+    if oldAtmo then
+        oldAtmo.Parent = nil
+    end
+    skyState.newSky = new("Sky", {
+        StarCount = 4000,
+        CelestialBodiesShown = false,
+    }, Lighting)
+    skyState.newAtmo = new("Atmosphere", {
+        Density = 0.42,
+        Offset = 0.15,
+        Glare = 0.15,
+        Haze = 1.1,
+        Color = Color3.fromRGB(40, 60, 120),
+        Decay = Color3.fromRGB(30, 40, 80),
+    }, Lighting)
+    Lighting.ClockTime = 0
+    Lighting.Ambient = Color3.fromRGB(12, 14, 34)
+    Lighting.OutdoorAmbient = Color3.fromRGB(20, 24, 52)
+    Lighting.Brightness = 1.2
+    Lighting.FogEnd = 2000
+    makeAurora()
+end
+
+local function disableSky()
+    if not skyState then
+        return
+    end
+    for _, entry in ipairs(auroraBeams) do
+        if entry.p0 then
+            entry.p0:Destroy()
+        end
+        if entry.p1 then
+            entry.p1:Destroy()
+        end
+    end
+    auroraBeams = {}
+    if skyState.newSky then
+        skyState.newSky:Destroy()
+    end
+    if skyState.newAtmo then
+        skyState.newAtmo:Destroy()
+    end
+    if skyState.sky then
+        skyState.sky.Parent = Lighting
+    end
+    if skyState.atmo then
+        skyState.atmo.Parent = Lighting
+    end
+    Lighting.ClockTime = skyState.clock
+    Lighting.Ambient = skyState.ambient
+    Lighting.OutdoorAmbient = skyState.outdoor
+    Lighting.Brightness = skyState.brightness
+    Lighting.FogEnd = skyState.fogEnd
+    skyState = nil
+end
+
+local function updateAurora()
+    if not Config.sky.enabled then
+        disableSky()
+        return
+    end
+    enableSky()
+    local cam = workspace.CurrentCamera
+    if not cam then
+        return
+    end
+    local t = tick() * (Config.sky.speed / 100 + 0.05)
+    local origin = cam.CFrame.Position + cam.CFrame.LookVector * 900 + Vector3.new(0, 260, 0)
+    local right = cam.CFrame.RightVector
+    for i, entry in ipairs(auroraBeams) do
+        local offset = (i - 2) * 300
+        local sway = math.sin(t + i) * 140
+        entry.p0.Position = origin
+            + right * (offset + sway)
+            + Vector3.new(0, math.sin(t * 0.7 + i) * 50, 0)
+        entry.p1.Position = origin
+            + right * (offset - sway * 1.3 + 160)
+            + Vector3.new(0, -140 + math.cos(t + i) * 40, 0)
+    end
+    local ca, cb = Config.sky.colorA, Config.sky.colorB
+    if Config.sky.rainbow then
+        ca = Color3.fromHSV((t * 0.12) % 1, 0.8, 1)
+        cb = Color3.fromHSV((t * 0.12 + 0.33) % 1, 0.8, 1)
+    end
+    for _, entry in ipairs(auroraBeams) do
+        local beam = entry.p0:FindFirstChildOfClass("Beam")
+        if beam then
+            beam.Color = ColorSequence.new(ca, cb)
+        end
+    end
+end
+
+--// jump fx
+local humConn = nil
+
+local function jumpFx()
+    if not Config.jump.enabled then
+        return
+    end
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then
+        return
+    end
+    local col = Config.jump.rainbow
+        and Color3.fromHSV((tick() * 0.6) % 1, 0.85, 1)
+        or Config.jump.color
+    local ring = new("Part", {
+        Anchored = true,
+        CanCollide = false,
+        CanQuery = false,
+        CanTouch = false,
+        Material = Enum.Material.Neon,
+        Color = col,
+        Shape = Enum.PartType.Cylinder,
+        Size = Vector3.new(0.2, 2, 2),
+        CFrame = CFrame.new(root.Position - Vector3.new(0, 2.6, 0))
+            * CFrame.Angles(0, 0, math.rad(90)),
+        Transparency = 0.1,
+    }, workspace)
+    TweenService:Create(
+        ring,
+        TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+        { Size = Vector3.new(0.2, 14, 14), Transparency = 1 }
+    ):Play()
+    task.delay(0.6, function()
+        ring:Destroy()
+    end)
+
+    local burst = new("Part", {
+        Anchored = true,
+        CanCollide = false,
+        CanQuery = false,
+        CanTouch = false,
+        Transparency = 1,
+        Size = Vector3.new(1, 1, 1),
+        CFrame = CFrame.new(root.Position - Vector3.new(0, 2.4, 0)),
+    }, workspace)
+    local emitter = new("ParticleEmitter", {
+        Color = ColorSequence.new(col),
+        Size = NumberSequence.new(0.6),
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.2),
+            NumberSequenceKeypoint.new(1, 1),
+        }),
+        Lifetime = NumberRange.new(0.4, 0.7),
+        Speed = NumberRange.new(8, 14),
+        SpreadAngle = Vector2.new(180, 180),
+        Rate = 0,
+        LightEmission = 1,
+        Texture = "rbxasset://textures/particles/sparkles_main.dds",
+    }, burst)
+    emitter:Emit(26)
+    task.delay(1, function()
+        burst:Destroy()
+    end)
+end
+
+local function hookCharacter(char)
+    if humConn then
+        humConn:Disconnect()
+        humConn = nil
+    end
+    local hum = char and char:WaitForChild("Humanoid", 5)
+    if hum then
+        humConn = hum.Jumping:Connect(jumpFx)
+    end
+end
+
+hookCharacter(LocalPlayer.Character)
+track(LocalPlayer.CharacterAdded:Connect(hookCharacter))
+
+--// walk fx
+local walkAcc = 0
+
+local function updateWalk(dt)
+    if not Config.walk.enabled then
+        return
+    end
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not root or not hum then
+        return
+    end
+    if hum.MoveDirection.Magnitude < 0.1 then
+        return
+    end
+    walkAcc = walkAcc + dt
+    if walkAcc < 0.07 then
+        return
+    end
+    walkAcc = 0
+
+    local col
+    if Config.walk.rainbow or Config.walk.mode == 2 then
+        col = Color3.fromHSV((tick() * 0.8) % 1, 0.85, 1)
+    else
+        col = Config.walk.color:Lerp(Color3.new(1, 0.85, 0.4), 0.25 * math.sin(tick() * 8))
+    end
+
+    local part = new("Part", {
+        Anchored = true,
+        CanCollide = false,
+        CanQuery = false,
+        CanTouch = false,
+        Material = Enum.Material.Neon,
+        Shape = Enum.PartType.Ball,
+        Size = Vector3.new(0.5, 0.5, 0.5),
+        Color = col,
+        CFrame = CFrame.new(root.Position - Vector3.new(0, 2.4, 0)),
+        Transparency = 0.2,
+    }, workspace)
+    TweenService:Create(
+        part,
+        TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+        {
+            CFrame = CFrame.new(root.Position + Vector3.new(0, 1.6, 0)),
+            Size = Vector3.new(0.1, 0.1, 0.1),
+            Transparency = 1,
+        }
+    ):Play()
+    task.delay(0.7, function()
+        part:Destroy()
+    end)
+end
+
+--// orbit fx
+local orbitParts = {}
+local orbitKind = nil
+
+local function clearOrbit()
+    for _, part in ipairs(orbitParts) do
+        part:Destroy()
+    end
+    orbitParts = {}
+    orbitKind = nil
+end
+
+local function buildOrbit(kind, count)
+    clearOrbit()
+    orbitKind = kind
+    for i = 1, count do
+        local part = new("Part", {
+            Anchored = true,
+            CanCollide = false,
+            CanQuery = false,
+            CanTouch = false,
+            Material = Enum.Material.Neon,
+            Shape = Enum.PartType.Ball,
+            Size = Vector3.new(0.35, 0.35, 0.35),
+            Color = Config.orbit.color,
+            Transparency = 0,
+        }, workspace)
+        if kind == 2 then
+            part.Size = Vector3.new(0.7, 1, 0.7)
+            part.Material = Enum.Material.SmoothPlastic
+            new("PointLight", {
+                Brightness = 2,
+                Range = 9,
+                Color = Config.orbit.color,
+            }, part)
+        elseif kind == 3 then
+            part.Size = Vector3.new(0.22, 0.22, 0.22)
+        end
+        orbitParts[i] = part
+    end
+end
+
+local function updateOrbit()
+    if not Config.orbit.enabled then
+        if #orbitParts > 0 then
+            clearOrbit()
+        end
+        return
+    end
+    if orbitKind ~= Config.orbit.kind or #orbitParts ~= Config.orbit.count then
+        buildOrbit(Config.orbit.kind, Config.orbit.count)
+    end
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then
+        return
+    end
+    local t = tick()
+    local total = #orbitParts
+    for i, part in ipairs(orbitParts) do
+        local angle = (i / total) * math.pi * 2 + t * Config.orbit.speed
+        local y = math.sin(t * 2 + i) * 0.6 + 1.2
+        part.CFrame = root.CFrame * CFrame.new(
+            math.cos(angle) * Config.orbit.radius,
+            y,
+            math.sin(angle) * Config.orbit.radius
+        )
+        local col = Config.orbit.rainbow
+            and Color3.fromHSV((t * 0.3 + i / total) % 1, 0.8, 1)
+            or Config.orbit.color
+        part.Color = col
+        local light = part:FindFirstChildOfClass("PointLight")
+        if light then
+            light.Color = col
+        end
+        if Config.orbit.kind == 3 then
+            part.Transparency = 0.35 + 0.3 * math.sin(t * 3 + i)
+        end
+    end
+end
+
+--// fov circle
+local fovCircle = new("Frame", {
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    Position = UDim2.fromScale(0.5, 0.5),
+    Size = UDim2.fromOffset(Config.aim.fov, Config.aim.fov),
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    Visible = false,
+}, espGui)
+new("UICorner", { CornerRadius = UDim.new(1, 0) }, fovCircle)
+local fovStroke = new("UIStroke", { Color = Theme.accent, Thickness = 1.5 }, fovCircle)
+
+--// main loop
+track(RunService.RenderStepped:Connect(function(dt)
+    local cam = workspace.CurrentCamera
+    if not cam then
+        return
+    end
+
+    currentTarget = findTarget()
+    local mode = Config.aim.mode
+    if Config.aim.enabled and currentTarget then
+        if mode == 2 or mode == 3 then
+            installSilent()
+            silentTarget = currentTarget
+        else
+            silentTarget = nil
+        end
+        if mode == 1 or mode == 3 then
+            applyAim(currentTarget, mode == 3 and 0.45 or 1)
+        elseif mode == 2 and not silentReady then
+            applyAim(currentTarget, 1)
+        end
+    else
+        silentTarget = nil
+    end
+
+    updateEsp()
+    updateTargetFx()
+    updateAurora()
+    updateWalk(dt)
+    updateOrbit()
+
+    fovCircle.Visible = Config.aim.enabled
+    if Config.aim.enabled then
+        fovCircle.Size = UDim2.fromOffset(Config.aim.fov, Config.aim.fov)
+        fovStroke.Color = Theme.accent
+    end
+end))
+
+--// players
+for _, plr in ipairs(Players:GetPlayers()) do
+    createEsp(plr)
+end
+
+track(Players.PlayerAdded:Connect(createEsp))
+track(Players.PlayerRemoving:Connect(function(plr)
+    local ui = espCache[plr]
+    if ui then
+        ui.holder:Destroy()
+    end
+    espCache[plr] = nil
+end))
+
+--// teardown
+unload = function()
+    for _, conn in ipairs(connections) do
+        pcall(function()
+            conn:Disconnect()
+        end)
+    end
+    connections = {}
+
+    if humConn then
+        pcall(function()
+            humConn:Disconnect()
+        end)
+        humConn = nil
+    end
+
+    silentTarget = nil
+    if silentReady and silentOld and restorefunction then
+        pcall(function()
+            restorefunction(silentOld)
+        end)
+        silentReady = false
+    end
+
+    pcall(disableSky)
+    pcall(clearOrbit)
+    pcall(function()
+        gui:Destroy()
+    end)
+    pcall(function()
+        espGui:Destroy()
+    end)
+    pcall(function()
+        targetHighlight:Destroy()
+    end)
+
+    if getgenv then
+        getgenv().BenchUnload = nil
+    end
+end
+
+if getgenv then
+    getgenv().BenchUnload = unload
+end
+
+
+
