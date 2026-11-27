@@ -101,7 +101,7 @@ local Config = {
         rainbow = false,
     },
     cosmetic = {
-        selected = 1,
+        selected = 1,7
         hat = {
             enabled = false,
             color = Color3.fromRGB(80, 200, 255),
@@ -163,7 +163,7 @@ local Config = {
             color = Color3.fromRGB(255, 200, 60),
             x = 0, y = 0, z = 0,
             scale = 1,
-            spin = 180,
+            spin = 0,
         },
         scythe = {
             enabled = false,
@@ -1799,7 +1799,7 @@ local MUSIC_FOLDER = "BenchUI_Music"
 --// cosmetic page
 local COSMETIC_DEFS = {
     { key = "hat", label = "China Hat", desc = "Wide flat cone" },
-    { key = "halo", label = "Energy Halo", desc = "White silver glow" },
+    { key = "halo", label = "Energy Halo", desc = "Energy ring, not a hat" },
     { key = "wizard", label = "Wizard Hat", desc = "Tall purple star" },
     { key = "wings", label = "Energy Wings", desc = "Big neon blades" },
     { key = "dragonwings", label = "Dragon Wings", desc = "Red dragon fan" },
@@ -5516,6 +5516,7 @@ local function initCosmeticsAndMusic()
     local saveAcc = 0
 
     local function addCosPart(model, parts, size, offset, color, transparency, shape, extra)
+        local class = (extra and extra.class) or "Part"
         local props = {
             Size = size,
             CFrame = offset,
@@ -5524,14 +5525,14 @@ local function initCosmeticsAndMusic()
             CanQuery = false,
             CanTouch = false,
             CastShadow = false,
-            Material = Enum.Material.Neon,
+            Material = (extra and extra.material) or Enum.Material.Neon,
             Color = color,
             Transparency = transparency or 0,
         }
-        if shape then
+        if shape and class == "Part" then
             props.Shape = shape
         end
-        local part = new("Part", props, model)
+        local part = new(class, props, model)
         local item = {
             part = part,
             size = size,
@@ -5778,83 +5779,62 @@ local function initCosmeticsAndMusic()
         local function add(size, off, trans, shape, extra)
             return addCosPart(model, parts, size, off, color, trans, shape, extra)
         end
-
-        -- Ring principal (anneau principal)
+        -- nang luong: khong phai mu, khong co phan de phu de tren dau
+        -- anneau principal translucido phat sang quanh dau
         add(
-            Vector3.new(0.18, 3.6, 3.6),
+            Vector3.new(0.16, 3.7, 3.7),
             CFrame.new(0, 0.55, 0) * CFrame.Angles(0, 0, math.rad(90)),
-            0.12,
-            Enum.PartType.Cylinder
+            0.22,
+            Enum.PartType.Cylinder,
+            { kind = "static" }
         )
         add(
-            Vector3.new(0.10, 3.9, 3.9),
+            Vector3.new(0.08, 4.05, 4.05),
             CFrame.new(0, 0.55, 0) * CFrame.Angles(0, 0, math.rad(90)),
-            0.35,
-            Enum.PartType.Cylinder
+            0.55,
+            Enum.PartType.Cylinder,
+            { kind = "rune", angle = 0, radius = 0, y = 0, lerp = 0.3 }
         )
-
-        -- Deux points lumineux sur les côtés
-        add(
-            Vector3.new(0.32, 0.32, 0.32),
-            CFrame.new(-1.55, 0.55, 0),
-            0,
-            Enum.PartType.Ball,
-            { kind = "rune", angle = math.pi, radius = 1.55, y = 0, lerp = 0.15 }
-        )
-        add(
-            Vector3.new(0.32, 0.32, 0.32),
-            CFrame.new(1.55, 0.55, 0),
-            0,
-            Enum.PartType.Ball,
-            { kind = "rune", angle = 0, radius = 1.55, y = 0, lerp = 0.15 }
-        )
-
-        -- Arcs lumineux (vagues courbes)
-        for i = 1, 3 do
-            local a = (i - 1) * math.pi * 2 / 3
-            add(
-                Vector3.new(0.08, 0.08, 2.2),
-                CFrame.Angles(0, a, math.rad(35)),
-                0.30,
-                Enum.PartType.Block,
-                { kind = "rune", angle = a, radius = 1.2, y = 0.55, lerp = 0.25 }
-            )
-        end
-
-        -- Plans géométriques translucides (triangles / polygones)
-        for i = 1, 6 do
-            local a = (i - 1) * math.pi / 3
-            add(
-                Vector3.new(0.06, 1.1, 1.1),
-                CFrame.Angles(0, a, math.rad(20)),
-                0.65,
-                Enum.PartType.Block,
-                { kind = "rune", angle = a, radius = 1.35, y = 0.55, lerp = 0.55 }
-            )
-        end
+        -- hai diem sang hai ben
+        add(Vector3.new(0.30, 0.30, 0.30), CFrame.new(-1.75, 0.55, 0), 0.10, Enum.PartType.Ball, { kind = "rune", angle = math.pi, radius = 1.75, y = 0, lerp = 0.15 })
+        add(Vector3.new(0.30, 0.30, 0.30), CFrame.new(1.75, 0.55, 0), 0.10, Enum.PartType.Ball, { kind = "rune", angle = 0, radius = 1.75, y = 0, lerp = 0.15 })
+        -- arcs lumineux cong nhu vong cung
         for i = 1, 4 do
-            local a = (i - 1) * math.pi / 2 + math.pi / 4
+            local a = (i - 1) * math.pi / 2
             add(
-                Vector3.new(0.05, 0.85, 0.85),
-                CFrame.Angles(0, a, math.rad(-15)),
-                0.70,
-                Enum.PartType.Block,
-                { kind = "rune", angle = a, radius = 1.5, y = 0.55, lerp = 0.60 }
+                Vector3.new(0.07, 0.07, 1.9),
+                CFrame.Angles(0, a, math.rad(28)),
+                0.45,
+                nil,
+                { kind = "rune", angle = a, radius = 1.35, y = 0.55, lerp = 0.35 }
             )
         end
-
-        -- Petits points lumineux supplémentaires
-        for i = 1, 5 do
-            local a = (i - 1) * math.pi * 2 / 5 + math.pi / 5
+        -- plans geometriques translucides bao quanh dau/vai
+        for i = 1, 8 do
+            local a = (i - 1) * math.pi / 4
             add(
-                Vector3.new(0.18, 0.18, 0.18),
-                CFrame.new(0, 0, 0),
-                0.25,
-                Enum.PartType.Ball,
-                { kind = "rune", angle = a, radius = 1.8, y = 0.55, lerp = 0.20 }
+                Vector3.new(0.05, 1.15, 1.15),
+                CFrame.Angles(0, a, math.rad(18)),
+                0.72,
+                nil,
+                { kind = "rune", angle = a, radius = 1.55, y = 0.55, lerp = 0.55 }
             )
         end
-
+        for i = 1, 6 do
+            local a = (i - 1) * math.pi / 3 + math.pi / 6
+            add(
+                Vector3.new(0.045, 0.95, 0.95),
+                CFrame.Angles(0, a, math.rad(-12)),
+                0.78,
+                nil,
+                { kind = "rune", angle = a, radius = 1.75, y = 0.45, lerp = 0.62 }
+            )
+        end
+        -- diem sang nho
+        for i = 1, 6 do
+            local a = (i - 1) * math.pi * 2 / 6 + math.pi / 6
+            add(Vector3.new(0.16, 0.16, 0.16), CFrame.new(0, 0, 0), 0.30, Enum.PartType.Ball, { kind = "rune", angle = a, radius = 1.95, y = 0.55, lerp = 0.20 })
+        end
         enhanceModel(model, color)
         return { model = model, parts = parts }
     end
@@ -6287,23 +6267,27 @@ local function initCosmeticsAndMusic()
         local function add(size, off, trans, shape, extra)
             return addCosPart(model, parts, size, off, color, trans, shape, extra)
         end
-        -- shaft
-        add(Vector3.new(0.14, 0.14, 3.6), CFrame.new(0, 0, 0), 0.05, Enum.PartType.Cylinder, { kind = "static" })
+        local metal = Color3.fromRGB(200, 210, 230)
+        -- shaft (khoen dinh ba)
+        add(Vector3.new(0.12, 0.12, 3.4), CFrame.new(0, 0, -0.2), 0.04, nil, { kind = "static", fixed = metal })
+        -- guard crossbar
+        add(Vector3.new(1.1, 0.10, 0.10), CFrame.new(0, 0, 1.15), 0.05, nil, { kind = "static", fixed = metal })
+        add(Vector3.new(0.24, 0.12, 0.12), CFrame.new(0, -0.06, 1.15), 0.05, nil, { kind = "static", fixed = metal })
+        -- three prongs
         -- center prong
-        add(Vector3.new(0.10, 0.10, 1.6), CFrame.new(0, 0, 1.8), 0.02, Enum.PartType.Cylinder, { kind = "static" })
-        add(Vector3.new(0.42, 0.06, 0.42), CFrame.new(0, 0, 2.5), 0, Enum.PartType.Block, { kind = "static", lerp = 0.2 })
+        add(Vector3.new(0.10, 0.10, 1.5), CFrame.new(0, 0, 1.9), 0.02, nil, { kind = "static" })
+        add(Vector3.new(0.30, 0.06, 0.30), CFrame.new(0, 0, 2.55), 0, nil, { kind = "static", lerp = 0.25 })
+        add(Vector3.new(0.14, 0.55, 0.55), CFrame.new(0, 0, 2.75) * CFrame.Angles(0, math.rad(45), math.rad(45)), 0, nil, { kind = "static", class = "WedgePart", lerp = 0.2 })
         -- side prongs
         for side = -1, 1, 2 do
-            add(Vector3.new(0.08, 0.08, 1.4), CFrame.new(side * 0.22, 0, 1.7) * CFrame.Angles(0, side * math.rad(8), 0), 0.02, Enum.PartType.Cylinder, { kind = "static" })
-            add(Vector3.new(0.36, 0.05, 0.36), CFrame.new(side * 0.32, 0, 2.3), 0, Enum.PartType.Block, { kind = "static", lerp = 0.2 })
+            add(Vector3.new(0.08, 0.08, 1.35), CFrame.new(side * 0.24, 0, 1.85) * CFrame.Angles(0, side * math.rad(7), 0), 0.02, nil, { kind = "static" })
+            add(Vector3.new(0.26, 0.05, 0.26), CFrame.new(side * 0.30, 0, 2.45), 0, nil, { kind = "static", lerp = 0.25 })
+            add(Vector3.new(0.12, 0.45, 0.45), CFrame.new(side * 0.32, 0, 2.62) * CFrame.Angles(0, side * math.rad(7), math.rad(45)), 0, nil, { kind = "static", class = "WedgePart", lerp = 0.2 })
         end
-        -- guard / crossbar
-        add(Vector3.new(1.2, 0.12, 0.12), CFrame.new(0, 0, 1.0), 0.08, Enum.PartType.Block, { kind = "static" })
-        -- glowing core
-        add(Vector3.new(0.24, 0.24, 0.24), CFrame.new(0, 0, 0), 0, Enum.PartType.Ball, { kind = "rune", angle = 0, radius = 0.4, y = 0, lerp = 0.45 })
-        -- energy rings along shaft
+        -- glowing core + energy rings
+        add(Vector3.new(0.22, 0.22, 0.22), CFrame.new(0, 0, 0.2), 0, nil, { kind = "rune", angle = 0, radius = 0.35, y = 0, lerp = 0.45 })
         for i = 1, 4 do
-            add(Vector3.new(0.22, 0.22, 0.06), CFrame.new(0, 0, -0.6 + i * 0.7) * CFrame.Angles(0, 0, math.rad(90)), 0.4, Enum.PartType.Cylinder, { kind = "rune", angle = i, radius = 0.25, y = 0, lerp = 0.3 })
+            add(Vector3.new(0.18, 0.18, 0.05), CFrame.new(0, 0, -0.5 + i * 0.7), 0.35, nil, { kind = "rune", angle = i, radius = 0.22, y = 0, lerp = 0.3 })
         end
         enhanceModel(model, color)
         return { model = model, parts = parts }
@@ -6315,24 +6299,31 @@ local function initCosmeticsAndMusic()
         local function add(size, off, trans, shape, extra)
             return addCosPart(model, parts, size, off, color, trans, shape, extra)
         end
-        -- handle
-        add(Vector3.new(0.12, 0.12, 1.6), CFrame.new(0, 0, -0.9), 0.05, Enum.PartType.Cylinder, { kind = "static" })
+        local metal = Color3.fromRGB(180, 180, 200)
+        local dark = Color3.fromRGB(20, 20, 30)
+        -- handle (chuoi bua)
+        add(Vector3.new(0.13, 0.13, 1.7), CFrame.new(0, 0, -0.95), 0.04, nil, { kind = "static", fixed = metal })
+        -- pommel cap
+        add(Vector3.new(0.24, 0.24, 0.14), CFrame.new(0, 0, -1.82), 0.04, nil, { kind = "static", fixed = dark })
         -- head block
-        add(Vector3.new(1.0, 0.7, 0.7), CFrame.new(0, 0, 0.4), 0.02, Enum.PartType.Block, { kind = "static" })
-        add(Vector3.new(1.2, 0.85, 0.85), CFrame.new(0, 0, 0.4), 0.35, Enum.PartType.Block, { kind = "static", lerp = 0.25 })
+        add(Vector3.new(1.05, 0.72, 0.72), CFrame.new(0, 0, 0.45), 0.02, nil, { kind = "static", fixed = dark })
+        add(Vector3.new(1.25, 0.92, 0.92), CFrame.new(0, 0, 0.45), 0.32, nil, { kind = "static", lerp = 0.25 })
         -- side faces
-        add(Vector3.new(0.15, 0.55, 0.55), CFrame.new(0.62, 0, 0.4), 0.08, Enum.PartType.Block, { kind = "static" })
-        add(Vector3.new(0.15, 0.55, 0.55), CFrame.new(-0.62, 0, 0.4), 0.08, Enum.PartType.Block, { kind = "static" })
+        add(Vector3.new(0.16, 0.62, 0.62), CFrame.new(0.64, 0, 0.45), 0.06, nil, { kind = "static", fixed = dark })
+        add(Vector3.new(0.16, 0.62, 0.62), CFrame.new(-0.64, 0, 0.45), 0.06, nil, { kind = "static", fixed = dark })
+        -- front/back caps
+        add(Vector3.new(1.05, 0.72, 0.10), CFrame.new(0, 0, 0.95), 0.05, nil, { kind = "static", fixed = dark })
+        add(Vector3.new(1.05, 0.72, 0.10), CFrame.new(0, 0, -0.05), 0.05, nil, { kind = "static", fixed = dark })
         -- lightning core
-        add(Vector3.new(0.35, 0.35, 0.35), CFrame.new(0, 0, 0.4), 0, Enum.PartType.Ball, { kind = "rune", angle = 0, radius = 0.5, y = 0, lerp = 0.6 })
+        add(Vector3.new(0.34, 0.34, 0.34), CFrame.new(0, 0, 0.45), 0, nil, { kind = "rune", angle = 0, radius = 0.5, y = 0, lerp = 0.6 })
         -- lightning arcs
         for i = 1, 4 do
             local a = (i - 1) * math.pi / 2
-            add(Vector3.new(0.06, 0.06, 1.1), CFrame.Angles(0, a, math.rad(45)) * CFrame.new(0, 0, 0.4), 0.15, Enum.PartType.Block, { kind = "rune", angle = a, radius = 0.7, y = 0, lerp = 0.5 })
+            add(Vector3.new(0.06, 0.06, 1.1), CFrame.Angles(0, a, math.rad(45)) * CFrame.new(0, 0, 0.45), 0.15, nil, { kind = "rune", angle = a, radius = 0.72, y = 0, lerp = 0.5 })
         end
         -- grip wrap
         for i = 1, 3 do
-            add(Vector3.new(0.16, 0.16, 0.08), CFrame.new(0, 0, -0.3 - i * 0.25) * CFrame.Angles(0, 0, math.rad(90)), 0.1, Enum.PartType.Cylinder, { kind = "static" })
+            add(Vector3.new(0.16, 0.16, 0.07), CFrame.new(0, 0, -0.35 - i * 0.25), 0.10, nil, { kind = "static", fixed = dark })
         end
         enhanceModel(model, color)
         return { model = model, parts = parts }
@@ -6344,26 +6335,29 @@ local function initCosmeticsAndMusic()
         local function add(size, off, trans, shape, extra)
             return addCosPart(model, parts, size, off, color, trans, shape, extra)
         end
+        local metal = Color3.fromRGB(200, 210, 220)
         -- shaft
-        add(Vector3.new(0.12, 0.12, 3.2), CFrame.new(0, 0, -0.4), 0.05, Enum.PartType.Cylinder, { kind = "static" })
-        -- blade curve (segments)
-        for i = 1, 6 do
-            local ang = math.rad(-20 + i * 12)
-            local z = 1.2 + i * 0.22
-            local x = 0.15 + i * 0.18
-            add(Vector3.new(0.08, 0.55, 0.18), CFrame.new(x, 0, z) * CFrame.Angles(0, ang, math.rad(25)), 0.02, Enum.PartType.Block, { kind = "static" })
-        end
-        -- blade tip
-        add(Vector3.new(0.06, 0.35, 0.35), CFrame.new(1.45, 0, 2.55) * CFrame.Angles(0, math.rad(40), math.rad(45)), 0, Enum.PartType.Wedge, { kind = "static", lerp = 0.3 })
-        -- inner glow
-        for i = 1, 3 do
-            add(Vector3.new(0.07, 0.30, 0.10), CFrame.new(0.3 + i * 0.32, 0, 1.5 + i * 0.28) * CFrame.Angles(0, math.rad(-10 + i * 8), math.rad(20)), 0.35, Enum.PartType.Block, { kind = "static", lerp = 0.5 })
-        end
+        add(Vector3.new(0.12, 0.12, 3.2), CFrame.new(0, 0, -0.4), 0.05, nil, { kind = "static", fixed = metal })
         -- pommel
-        add(Vector3.new(0.28, 0.28, 0.28), CFrame.new(0, 0, -2.0), 0, Enum.PartType.Ball, { kind = "rune", angle = 0, radius = 0.4, y = 0, lerp = 0.45 })
+        add(Vector3.new(0.26, 0.26, 0.26), CFrame.new(0, 0, -2.05), 0, nil, { kind = "static", class = "Part", shape = nil, lerp = 0.45 })
+        -- guard near blade
+        add(Vector3.new(0.18, 0.18, 0.18), CFrame.new(0.12, 0, 1.15), 0.1, nil, { kind = "static", fixed = metal })
+        -- blade curve (segments)
+        for i = 1, 7 do
+            local ang = math.rad(-24 + i * 11)
+            local z = 1.2 + i * 0.20
+            local x = 0.16 + i * 0.17
+            add(Vector3.new(0.08, 0.55, 0.18), CFrame.new(x, 0, z) * CFrame.Angles(0, ang, math.rad(22)), 0.02, nil, { kind = "static", fixed = metal })
+        end
+        -- blade tip wedge
+        add(Vector3.new(0.10, 0.45, 0.45), CFrame.new(1.55, 0, 2.62) * CFrame.Angles(0, math.rad(40), math.rad(45)), 0, nil, { kind = "static", class = "WedgePart", lerp = 0.3 })
+        -- inner glow edge
+        for i = 1, 4 do
+            add(Vector3.new(0.07, 0.30, 0.10), CFrame.new(0.34 + i * 0.30, 0, 1.45 + i * 0.24) * CFrame.Angles(0, math.rad(-10 + i * 7), math.rad(18)), 0.32, nil, { kind = "static", lerp = 0.5 })
+        end
         -- energy runes along shaft
         for i = 1, 3 do
-            add(Vector3.new(0.18, 0.18, 0.06), CFrame.new(0, 0, -0.2 + i * 0.8) * CFrame.Angles(0, 0, math.rad(90)), 0.4, Enum.PartType.Cylinder, { kind = "rune", angle = i, radius = 0.2, y = 0, lerp = 0.3 })
+            add(Vector3.new(0.16, 0.16, 0.05), CFrame.new(0, 0, -0.2 + i * 0.8), 0.4, nil, { kind = "rune", angle = i, radius = 0.18, y = 0, lerp = 0.3 })
         end
         enhanceModel(model, color)
         return { model = model, parts = parts }
@@ -6402,6 +6396,18 @@ local function initCosmeticsAndMusic()
                 end
             end
         end
+    end
+
+    local WEAPON_KEYS = { trident = true, thorhammer = true, scythe = true }
+
+    local function findRightHand(char)
+        if not char then
+            return nil
+        end
+        return char:FindFirstChild("RightHand")
+            or char:FindFirstChild("Right Arm")
+            or char:FindFirstChild("RightLeg")
+            or char:FindFirstChild("Right Leg")
     end
 
     local function updateModel(cm, base, cfg, t, angle, visible, ghost)
@@ -6690,6 +6696,11 @@ local function initCosmeticsAndMusic()
                         base = root.CFrame
                             * CFrame.lookAt(pos, pos + vel)
                     end
+                elseif WEAPON_KEYS[key] then
+                    local hand = findRightHand(previewChar)
+                    if hand then
+                        base = hand.CFrame * CFrame.new(0.08, -0.28, 0)
+                    end
                 elseif head then
                     base = head.CFrame
                         * CFrame.new(0, head.Size.Y * 0.5 + 0.05, 0)
@@ -6765,6 +6776,12 @@ local function initCosmeticsAndMusic()
                         local vel = Vector3.new(-math.sin(a), 0, math.cos(a))
                         base = root.CFrame
                             * CFrame.lookAt(pos, pos + vel)
+                    end
+                elseif WEAPON_KEYS[key] then
+                    local hand = findRightHand(char)
+                    if hand then
+                        -- vi tri tay de cam
+                        base = hand.CFrame * CFrame.new(0.08, -0.28, 0)
                     end
                 elseif head then
                     base = head.CFrame
