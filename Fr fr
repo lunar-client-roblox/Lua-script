@@ -101,7 +101,7 @@ local Config = {
         rainbow = false,
     },
     cosmetic = {
-        selected = 1,7
+        selected = 1,
         hat = {
             enabled = false,
             color = Color3.fromRGB(80, 200, 255),
@@ -507,19 +507,19 @@ local function applySettingsData(data)
     Config.walk.color = keepColor(Config.walk.color, Color3.fromRGB(255, 120, 60))
     Config.orbit.color = keepColor(Config.orbit.color, Color3.fromRGB(255, 220, 80))
 
-    Config.cosmetic.selected = math.clamp(tonumber(Config.cosmetic.selected) or 1, 1, 10)
-    Config.aim.mode = math.clamp(tonumber(Config.aim.mode) or 1, 1, #AIM_MODES)
-    Config.aim.part = math.clamp(tonumber(Config.aim.part) or 1, 1, #AIM_PARTS)
+    Config.cosmetic.selected = math.floor(math.clamp(tonumber(Config.cosmetic.selected) or 1, 1, 10))
+    Config.aim.mode = math.floor(math.clamp(tonumber(Config.aim.mode) or 1, 1, #AIM_MODES))
+    Config.aim.part = math.floor(math.clamp(tonumber(Config.aim.part) or 1, 1, #AIM_PARTS))
     Config.aim.fov = math.clamp(tonumber(Config.aim.fov) or 220, 80, 600)
     Config.aim.smooth = math.clamp(tonumber(Config.aim.smooth) or 6, 1, 20)
     Config.aim.predict = math.clamp(tonumber(Config.aim.predict) or 0, 0, 30)
-    Config.esp.style = math.clamp(tonumber(Config.esp.style) or 1, 1, #ESP_STYLES)
+    Config.esp.style = math.floor(math.clamp(tonumber(Config.esp.style) or 1, 1, #ESP_STYLES))
     Config.esp.targetSpin = math.clamp(tonumber(Config.esp.targetSpin) or 90, 0, 720)
-    Config.sky.type = math.clamp(tonumber(Config.sky.type) or 1, 1, #SKY_NAMES)
+    Config.sky.type = math.floor(math.clamp(tonumber(Config.sky.type) or 1, 1, #SKY_NAMES))
     Config.sky.speed = math.clamp(tonumber(Config.sky.speed) or 40, 0, 100)
-    Config.walk.mode = math.clamp(tonumber(Config.walk.mode) or 1, 1, #WALK_MODES)
+    Config.walk.mode = math.floor(math.clamp(tonumber(Config.walk.mode) or 1, 1, #WALK_MODES))
     Config.walk.power = math.clamp(tonumber(Config.walk.power) or 1, 1, 3)
-    Config.orbit.kind = math.clamp(tonumber(Config.orbit.kind) or 1, 1, #ORBIT_KINDS)
+    Config.orbit.kind = math.floor(math.clamp(tonumber(Config.orbit.kind) or 1, 1, #ORBIT_KINDS))
     Config.orbit.count = math.clamp(tonumber(Config.orbit.count) or 8, 1, 10)
     Config.orbit.radius = math.clamp(tonumber(Config.orbit.radius) or 3.5, 2, 80)
     Config.orbit.size = math.clamp(tonumber(Config.orbit.size) or 1, 1, 3)
@@ -529,7 +529,7 @@ local function applySettingsData(data)
     if #Config.yt.tracks == 0 then
         Config.yt.index = 1
     else
-        Config.yt.index = math.clamp(tonumber(Config.yt.index) or 1, 1, #Config.yt.tracks)
+        Config.yt.index = math.floor(math.clamp(tonumber(Config.yt.index) or 1, 1, #Config.yt.tracks))
     end
 
     for _, key in ipairs({
@@ -571,7 +571,7 @@ local function applySettingsData(data)
     if #Config.yt.tracks == 0 then
         Config.yt.index = 1
     else
-        Config.yt.index = math.clamp(Config.yt.index, 1, #Config.yt.tracks)
+        Config.yt.index = math.floor(math.clamp(Config.yt.index, 1, #Config.yt.tracks))
     end
 
     if applyTheme then
