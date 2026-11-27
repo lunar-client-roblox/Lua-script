@@ -151,6 +151,27 @@ local Config = {
             scale = 1,
             spin = 70,
         },
+        trident = {
+            enabled = false,
+            color = Color3.fromRGB(60, 180, 255),
+            x = 0, y = 0, z = 0,
+            scale = 1,
+            spin = 0,
+        },
+        thorhammer = {
+            enabled = false,
+            color = Color3.fromRGB(255, 200, 60),
+            x = 0, y = 0, z = 0,
+            scale = 1,
+            spin = 180,
+        },
+        scythe = {
+            enabled = false,
+            color = Color3.fromRGB(140, 255, 120),
+            x = 0, y = 0, z = 0,
+            scale = 1,
+            spin = 0,
+        },
     },
     yt = {
         hub = false,
@@ -439,6 +460,7 @@ local function applySettingsData(data)
     if decoded.cosmetic then
         for _, key in ipairs({
             "hat", "halo", "wizard", "wings", "dragonwings", "crown", "dragon",
+            "trident", "thorhammer", "scythe",
         }) do
             if decoded.cosmetic[key] ~= nil
                 and type(decoded.cosmetic[key]) ~= "table" then
@@ -485,7 +507,7 @@ local function applySettingsData(data)
     Config.walk.color = keepColor(Config.walk.color, Color3.fromRGB(255, 120, 60))
     Config.orbit.color = keepColor(Config.orbit.color, Color3.fromRGB(255, 220, 80))
 
-    Config.cosmetic.selected = math.clamp(tonumber(Config.cosmetic.selected) or 1, 1, 6)
+    Config.cosmetic.selected = math.clamp(tonumber(Config.cosmetic.selected) or 1, 1, 10)
     Config.aim.mode = math.clamp(tonumber(Config.aim.mode) or 1, 1, #AIM_MODES)
     Config.aim.part = math.clamp(tonumber(Config.aim.part) or 1, 1, #AIM_PARTS)
     Config.aim.fov = math.clamp(tonumber(Config.aim.fov) or 220, 80, 600)
@@ -512,6 +534,7 @@ local function applySettingsData(data)
 
     for _, key in ipairs({
         "hat", "halo", "wizard", "wings", "dragonwings", "crown", "dragon",
+        "trident", "thorhammer", "scythe",
     }) do
         local c = Config.cosmetic[key]
         if type(c) == "table" then
@@ -1614,6 +1637,56 @@ note(pages.combat,
     .. "Hybrid — silent + camera nhẹ. Smooth 1 = bám cứng, 20 = mượt.", 58)
 
 --// RENDER page
+local visualRatioGroup = collapsible(pages.render, "visual ratio", true)
+toggleRow(visualRatioGroup, "4:3 aspect", false, function(v)
+    if v then
+        if not _G.BenchAspectBars then
+            _G.BenchAspectBars = true
+            local barL = new("Frame", {
+                Size = UDim2.new(0.5, 0, 1, 0),
+                Position = UDim2.fromScale(0, 0),
+                BackgroundColor3 = Color3.new(0, 0, 0),
+                BorderSizePixel = 0,
+                ZIndex = 100,
+            }, espGui)
+            local barR = new("Frame", {
+                Size = UDim2.new(0.5, 0, 1, 0),
+                Position = UDim2.fromScale(0.5, 0),
+                BackgroundColor3 = Color3.new(0, 0, 0),
+                BorderSizePixel = 0,
+                ZIndex = 100,
+            }, espGui)
+            -- calculate bar width for 4:3
+            local vp = viewport()
+            local targetAspect = 4 / 3
+            local currentAspect = vp.X / vp.Y
+            local barWidth = 0
+            if currentAspect > targetAspect then
+                barWidth = (vp.X - vp.Y * targetAspect) / 2
+            end
+            barL.Size = UDim2.fromOffset(barWidth, vp.Y)
+            barR.Size = UDim2.fromOffset(barWidth, vp.Y)
+            barL.Position = UDim2.fromOffset(0, 0)
+            barR.Position = UDim2.fromOffset(vp.X - barWidth, 0)
+            _G.BenchAspectL = barL
+            _G.BenchAspectR = barR
+        end
+    else
+        if _G.BenchAspectL then
+            _G.BenchAspectL:Destroy()
+            _G.BenchAspectL = nil
+        end
+        if _G.BenchAspectR then
+            _G.BenchAspectR:Destroy()
+            _G.BenchAspectR = nil
+        end
+        _G.BenchAspectBars = false
+    end
+end)
+note(visualRatioGroup,
+    "Chuyển màn hình sang tỷ lệ 4:3 bằng cách thêm thanh đen hai bên. "
+    .. "Chỉ hoạt động khi màn hình rộng hơn 4:3.", 44)
+
 local espGroup = collapsible(pages.render, "esp", true)
 toggleRow(espGroup, "2D box", Config.esp.box2d, function(v)
     Config.esp.box2d = v
@@ -1732,6 +1805,9 @@ local COSMETIC_DEFS = {
     { key = "dragonwings", label = "Dragon Wings", desc = "Red dragon fan" },
     { key = "crown", label = "Energy Crown", desc = "Five spikes" },
     { key = "dragon", label = "Dragon Pet", desc = "Floating neon pet" },
+    { key = "trident", label = "Energy Trident", desc = "Three-prong spear" },
+    { key = "thorhammer", label = "Thor Hammer", desc = "Lightning mallet" },
+    { key = "scythe", label = "Energy Scythe", desc = "Curved blade" },
 }
 local cosCards = {}
 local cosControls
@@ -1753,15 +1829,19 @@ addOrder(pages.cosmetic, cosTop)
 cosPreview = new("ViewportFrame", {
     Position = UDim2.fromOffset(8, 8),
     Size = UDim2.new(0.48, -12, 1, -16),
-    BackgroundColor3 = Color3.fromRGB(10, 12, 18),
+    BackgroundColor3 = Color3.fromRGB(8, 10, 16),
     BackgroundTransparency = 0,
-    Ambient = Color3.fromRGB(120, 120, 140),
-    LightColor = Color3.fromRGB(255, 255, 255),
-    LightDirection = Vector3.new(-1, -1, -1),
+    Ambient = Color3.fromRGB(140, 140, 170),
+    LightColor = Color3.fromRGB(255, 250, 240),
+    LightDirection = Vector3.new(-1, -0.5, -1),
 }, cosTop)
-corner(cosPreview, 10)
+corner(cosPreview, 12)
 stroke(cosPreview, Theme.stroke, 1)
-cosPreviewCam = new("Camera", { FieldOfView = 56 }, cosPreview)
+new("UIGradient", {
+    Color = ColorSequence.new(Color3.fromRGB(18, 22, 32), Color3.fromRGB(6, 8, 14)),
+    Rotation = 90,
+}, cosPreview)
+cosPreviewCam = new("Camera", { FieldOfView = 52 }, cosPreview)
 cosPreview.CurrentCamera = cosPreviewCam
 
 new("TextLabel", {
@@ -5423,6 +5503,7 @@ end
 local function initCosmeticsAndMusic()
     local COS_KEYS = {
         "hat", "halo", "wizard", "wings", "dragonwings", "crown", "dragon",
+        "trident", "thorhammer", "scythe",
     }
     local cosFolder = new("Folder", { Name = "BenchCosmetics" }, fxFolder)
     local worldModels = {}
@@ -5466,6 +5547,172 @@ local function initCosmeticsAndMusic()
         }
         parts[#parts + 1] = item
         return part
+    end
+
+    --// nang cap do hoa: hieu ung phat sang cho cosmetic
+    local function addSpecialMesh(part, meshType, meshId, scale, offset)
+        local mesh = new("SpecialMesh", {
+            MeshType = meshType or Enum.MeshType.Brick,
+            MeshId = meshId or "",
+            Scale = scale or Vector3.new(1, 1, 1),
+            Offset = offset or Vector3.zero,
+        }, part)
+        return mesh
+    end
+
+    local function addParticle(part, opts)
+        local o = opts or {}
+        local emitter = new("ParticleEmitter", {
+            Name = o.name or "CosFx",
+            Texture = o.texture or "rbxasset://textures/particles/sparkles_main.dds",
+            Color = o.color or ColorSequence.new(part.Color, part.Color),
+            Size = o.size or NumberSequence.new({
+                NumberSequenceKeypoint.new(0, 0.35),
+                NumberSequenceKeypoint.new(0.5, 0.15),
+                NumberSequenceKeypoint.new(1, 0),
+            }),
+            Transparency = o.transparency or NumberSequence.new({
+                NumberSequenceKeypoint.new(0, 0.15),
+                NumberSequenceKeypoint.new(0.7, 0.5),
+                NumberSequenceKeypoint.new(1, 1),
+            }),
+            Lifetime = o.lifetime or NumberRange.new(0.6, 1.4),
+            Rate = o.rate or 12,
+            Speed = o.speed or NumberRange.new(0.4, 1.2),
+            SpreadAngle = o.spreadAngle or Vector2.new(36, 36),
+            Rotation = o.rotation or NumberRange.new(0, 360),
+            RotSpeed = o.rotSpeed or NumberRange.new(-90, 90),
+            LightEmission = o.lightEmission or 0.65,
+            LightInfluence = o.lightInfluence or 0,
+            Acceleration = o.acceleration or Vector3.new(0, 0.6, 0),
+            Drag = o.drag or 1.5,
+            VelocityInheritance = o.velocityInheritance or 0,
+            ZOffset = o.zOffset or 0,
+        }, part)
+        if o.shape then
+            emitter.Shape = o.shape
+        end
+        if o.shapePartial then
+            emitter.ShapePartial = o.shapePartial
+        end
+        if o.lockedToPart then
+            emitter.LockedToPart = true
+        end
+        if o.enabled == false then
+            emitter.Enabled = false
+        end
+        return emitter
+    end
+
+    local function addLight(part, opts)
+        local o = opts or {}
+        local light = new("PointLight", {
+            Name = o.name or "CosGlow",
+            Color = o.color or part.Color,
+            Brightness = o.brightness or 1.2,
+            Range = o.range or 8,
+            Shadows = o.shadows == true,
+        }, part)
+        return light
+    end
+
+    local function addSparkles(part, opts)
+        local o = opts or {}
+        local sp = new("Sparkles", {
+            Name = o.name or "CosSparkles",
+            Color = o.color or part.Color,
+            Enabled = o.enabled ~= false,
+        }, part)
+        return sp
+    end
+
+    local function addTrail(part, opts)
+        local o = opts or {}
+        local a0 = new("Attachment", { Name = "Trail0", Position = o.a0 or Vector3.new(0, 0.5, 0) }, part)
+        local a1 = new("Attachment", { Name = "Trail1", Position = o.a1 or Vector3.new(0, -0.5, 0) }, part)
+        local trail = new("Trail", {
+            Name = o.name or "CosTrail",
+            Attachment0 = a0,
+            Attachment1 = a1,
+            Color = o.color or ColorSequence.new(part.Color, part.Color),
+            Transparency = o.transparency or NumberSequence.new({
+                NumberSequenceKeypoint.new(0, 0.05),
+                NumberSequenceKeypoint.new(1, 1),
+            }),
+            Lifetime = o.lifetime or 0.35,
+            MinLength = o.minLength or 0.05,
+            FaceCamera = true,
+            LightEmission = o.lightEmission or 0.5,
+            LightInfluence = 0,
+            WidthScale = o.widthScale or NumberSequence.new({
+                NumberSequenceKeypoint.new(0, 1),
+                NumberSequenceKeypoint.new(1, 0.1),
+            }),
+        }, part)
+        return trail
+    end
+
+    local function addBeam(part, opts)
+        local o = opts or {}
+        local a0 = new("Attachment", { Name = "Beam0", Position = o.a0 or Vector3.new(0, 0, 0) }, part)
+        local a1 = new("Attachment", { Name = "Beam1", Position = o.a1 or Vector3.new(0, 0.8, 0) }, part)
+        local beam = new("Beam", {
+            Name = o.name or "CosBeam",
+            Attachment0 = a0,
+            Attachment1 = a1,
+            Color = o.color or ColorSequence.new(part.Color, part.Color),
+            Transparency = o.transparency or NumberSequence.new(0.2),
+            Width0 = o.width0 or 0.15,
+            Width1 = o.width1 or 0.05,
+            Segments = o.segments or 8,
+            CurveSize0 = o.curveSize0 or 0,
+            CurveSize1 = o.curveSize1 or 0,
+            FaceCamera = true,
+            LightEmission = o.lightEmission or 0.5,
+            LightInfluence = 0,
+            Texture = o.texture or "",
+            TextureMode = Enum.TextureMode.Stretch,
+            TextureSpeed = o.textureSpeed or 0.2,
+        }, part)
+        return beam
+    end
+
+    local function addGlow(part, opts)
+        local o = opts or {}
+        local h = new("Highlight", {
+            Name = o.name or "CosHighlight",
+            FillColor = o.fillColor or part.Color,
+            OutlineColor = o.outlineColor or Color3.new(1, 1, 1),
+            FillTransparency = o.fillTransparency or 0.6,
+            OutlineTransparency = o.outlineTransparency or 0.2,
+            DepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
+        }, part)
+        return h
+    end
+
+    local function enhanceModel(model, color)
+        local target = model:FindFirstChildOfClass("Part") or model:FindFirstChildOfClass("WedgePart")
+        if not target then
+            return
+        end
+        addLight(target, { color = color, brightness = 1.25, range = 10 })
+        addSparkles(target, { color = color })
+        addParticle(target, {
+            color = ColorSequence.new(color, color),
+            rate = 10,
+            lifetime = NumberRange.new(0.6, 1.3),
+            size = NumberSequence.new({
+                NumberSequenceKeypoint.new(0, 0.28),
+                NumberSequenceKeypoint.new(0.5, 0.12),
+                NumberSequenceKeypoint.new(1, 0),
+            }),
+        })
+        addGlow(target, {
+            fillColor = color,
+            outlineColor = color:Lerp(Color3.new(1, 1, 1), 0.4),
+            fillTransparency = 0.58,
+            outlineTransparency = 0.2,
+        })
     end
 
     local function buildHat(parent, color)
@@ -5521,6 +5768,7 @@ local function initCosmeticsAndMusic()
             )
         end
 
+        enhanceModel(model, color)
         return { model = model, parts = parts }
     end
 
@@ -5607,6 +5855,7 @@ local function initCosmeticsAndMusic()
             )
         end
 
+        enhanceModel(model, color)
         return { model = model, parts = parts }
     end
 
@@ -5657,6 +5906,7 @@ local function initCosmeticsAndMusic()
             )
         end
 
+        enhanceModel(model, color)
         return { model = model, parts = parts }
     end
 
@@ -5706,6 +5956,7 @@ local function initCosmeticsAndMusic()
             { kind = "gem", lerp = 0.55 }
         )
 
+        enhanceModel(model, color)
         return { model = model, parts = parts }
     end
 
@@ -5819,6 +6070,7 @@ local function initCosmeticsAndMusic()
             { kind = "aura", lerp = 0.45 }
         )
 
+        enhanceModel(model, color)
         return { model = model, parts = parts }
     end
 
@@ -5889,6 +6141,7 @@ local function initCosmeticsAndMusic()
             end
         end
 
+        enhanceModel(model, color)
         return { model = model, parts = parts }
     end
 
@@ -6024,6 +6277,95 @@ local function initCosmeticsAndMusic()
             )
         end
 
+        enhanceModel(model, color)
+        return { model = model, parts = parts }
+    end
+
+    local function buildTrident(parent, color)
+        local model = new("Model", { Name = "CosTrident" }, parent)
+        local parts = {}
+        local function add(size, off, trans, shape, extra)
+            return addCosPart(model, parts, size, off, color, trans, shape, extra)
+        end
+        -- shaft
+        add(Vector3.new(0.14, 0.14, 3.6), CFrame.new(0, 0, 0), 0.05, Enum.PartType.Cylinder, { kind = "static" })
+        -- center prong
+        add(Vector3.new(0.10, 0.10, 1.6), CFrame.new(0, 0, 1.8), 0.02, Enum.PartType.Cylinder, { kind = "static" })
+        add(Vector3.new(0.42, 0.06, 0.42), CFrame.new(0, 0, 2.5), 0, Enum.PartType.Block, { kind = "static", lerp = 0.2 })
+        -- side prongs
+        for side = -1, 1, 2 do
+            add(Vector3.new(0.08, 0.08, 1.4), CFrame.new(side * 0.22, 0, 1.7) * CFrame.Angles(0, side * math.rad(8), 0), 0.02, Enum.PartType.Cylinder, { kind = "static" })
+            add(Vector3.new(0.36, 0.05, 0.36), CFrame.new(side * 0.32, 0, 2.3), 0, Enum.PartType.Block, { kind = "static", lerp = 0.2 })
+        end
+        -- guard / crossbar
+        add(Vector3.new(1.2, 0.12, 0.12), CFrame.new(0, 0, 1.0), 0.08, Enum.PartType.Block, { kind = "static" })
+        -- glowing core
+        add(Vector3.new(0.24, 0.24, 0.24), CFrame.new(0, 0, 0), 0, Enum.PartType.Ball, { kind = "rune", angle = 0, radius = 0.4, y = 0, lerp = 0.45 })
+        -- energy rings along shaft
+        for i = 1, 4 do
+            add(Vector3.new(0.22, 0.22, 0.06), CFrame.new(0, 0, -0.6 + i * 0.7) * CFrame.Angles(0, 0, math.rad(90)), 0.4, Enum.PartType.Cylinder, { kind = "rune", angle = i, radius = 0.25, y = 0, lerp = 0.3 })
+        end
+        enhanceModel(model, color)
+        return { model = model, parts = parts }
+    end
+
+    local function buildThorHammer(parent, color)
+        local model = new("Model", { Name = "CosThorHammer" }, parent)
+        local parts = {}
+        local function add(size, off, trans, shape, extra)
+            return addCosPart(model, parts, size, off, color, trans, shape, extra)
+        end
+        -- handle
+        add(Vector3.new(0.12, 0.12, 1.6), CFrame.new(0, 0, -0.9), 0.05, Enum.PartType.Cylinder, { kind = "static" })
+        -- head block
+        add(Vector3.new(1.0, 0.7, 0.7), CFrame.new(0, 0, 0.4), 0.02, Enum.PartType.Block, { kind = "static" })
+        add(Vector3.new(1.2, 0.85, 0.85), CFrame.new(0, 0, 0.4), 0.35, Enum.PartType.Block, { kind = "static", lerp = 0.25 })
+        -- side faces
+        add(Vector3.new(0.15, 0.55, 0.55), CFrame.new(0.62, 0, 0.4), 0.08, Enum.PartType.Block, { kind = "static" })
+        add(Vector3.new(0.15, 0.55, 0.55), CFrame.new(-0.62, 0, 0.4), 0.08, Enum.PartType.Block, { kind = "static" })
+        -- lightning core
+        add(Vector3.new(0.35, 0.35, 0.35), CFrame.new(0, 0, 0.4), 0, Enum.PartType.Ball, { kind = "rune", angle = 0, radius = 0.5, y = 0, lerp = 0.6 })
+        -- lightning arcs
+        for i = 1, 4 do
+            local a = (i - 1) * math.pi / 2
+            add(Vector3.new(0.06, 0.06, 1.1), CFrame.Angles(0, a, math.rad(45)) * CFrame.new(0, 0, 0.4), 0.15, Enum.PartType.Block, { kind = "rune", angle = a, radius = 0.7, y = 0, lerp = 0.5 })
+        end
+        -- grip wrap
+        for i = 1, 3 do
+            add(Vector3.new(0.16, 0.16, 0.08), CFrame.new(0, 0, -0.3 - i * 0.25) * CFrame.Angles(0, 0, math.rad(90)), 0.1, Enum.PartType.Cylinder, { kind = "static" })
+        end
+        enhanceModel(model, color)
+        return { model = model, parts = parts }
+    end
+
+    local function buildScythe(parent, color)
+        local model = new("Model", { Name = "CosScythe" }, parent)
+        local parts = {}
+        local function add(size, off, trans, shape, extra)
+            return addCosPart(model, parts, size, off, color, trans, shape, extra)
+        end
+        -- shaft
+        add(Vector3.new(0.12, 0.12, 3.2), CFrame.new(0, 0, -0.4), 0.05, Enum.PartType.Cylinder, { kind = "static" })
+        -- blade curve (segments)
+        for i = 1, 6 do
+            local ang = math.rad(-20 + i * 12)
+            local z = 1.2 + i * 0.22
+            local x = 0.15 + i * 0.18
+            add(Vector3.new(0.08, 0.55, 0.18), CFrame.new(x, 0, z) * CFrame.Angles(0, ang, math.rad(25)), 0.02, Enum.PartType.Block, { kind = "static" })
+        end
+        -- blade tip
+        add(Vector3.new(0.06, 0.35, 0.35), CFrame.new(1.45, 0, 2.55) * CFrame.Angles(0, math.rad(40), math.rad(45)), 0, Enum.PartType.Wedge, { kind = "static", lerp = 0.3 })
+        -- inner glow
+        for i = 1, 3 do
+            add(Vector3.new(0.07, 0.30, 0.10), CFrame.new(0.3 + i * 0.32, 0, 1.5 + i * 0.28) * CFrame.Angles(0, math.rad(-10 + i * 8), math.rad(20)), 0.35, Enum.PartType.Block, { kind = "static", lerp = 0.5 })
+        end
+        -- pommel
+        add(Vector3.new(0.28, 0.28, 0.28), CFrame.new(0, 0, -2.0), 0, Enum.PartType.Ball, { kind = "rune", angle = 0, radius = 0.4, y = 0, lerp = 0.45 })
+        -- energy runes along shaft
+        for i = 1, 3 do
+            add(Vector3.new(0.18, 0.18, 0.06), CFrame.new(0, 0, -0.2 + i * 0.8) * CFrame.Angles(0, 0, math.rad(90)), 0.4, Enum.PartType.Cylinder, { kind = "rune", angle = i, radius = 0.2, y = 0, lerp = 0.3 })
+        end
+        enhanceModel(model, color)
         return { model = model, parts = parts }
     end
 
@@ -6035,6 +6377,9 @@ local function initCosmeticsAndMusic()
         dragonwings = buildDragonWings,
         crown = buildCrown,
         dragon = buildDragon,
+        trident = buildTrident,
+        thorhammer = buildThorHammer,
+        scythe = buildScythe,
     }
 
     for _, key in ipairs(COS_KEYS) do
@@ -6101,6 +6446,25 @@ local function initCosmeticsAndMusic()
         end
     end
 
+    local function recolorFx(part, col)
+        for _, child in ipairs(part:GetChildren()) do
+            if child:IsA("PointLight") then
+                child.Color = col
+            elseif child:IsA("Sparkles") then
+                child.Color = col
+            elseif child:IsA("ParticleEmitter") then
+                child.Color = ColorSequence.new(col, col)
+            elseif child:IsA("Highlight") then
+                child.FillColor = col
+                child.OutlineColor = col:Lerp(Color3.new(1, 1, 1), 0.4)
+            elseif child:IsA("Trail") then
+                child.Color = ColorSequence.new(col, col)
+            elseif child:IsA("Beam") then
+                child.Color = ColorSequence.new(col, col)
+            end
+        end
+    end
+
     cosmeticRefresh = function()
         for _, key in ipairs(COS_KEYS) do
             local cfg = Config.cosmetic[key]
@@ -6112,6 +6476,7 @@ local function initCosmeticsAndMusic()
                         col = col:Lerp(Color3.new(1, 1, 1), item.lerp)
                     end
                     item.part.Color = col
+                    recolorFx(item.part, col)
                 end
                 if not cfg.enabled then
                     setModelVisible(cm, false, false)
@@ -6126,6 +6491,7 @@ local function initCosmeticsAndMusic()
                         col = col:Lerp(Color3.new(1, 1, 1), item.lerp)
                     end
                     item.part.Color = col
+                    recolorFx(item.part, col)
                 end
             end
         end
@@ -6149,20 +6515,20 @@ local function initCosmeticsAndMusic()
     local function buildPlatform(world)
         new("Part", {
             Name = "PreviewBase",
-            Size = Vector3.new(0.18, 4.6, 4.6),
-            CFrame = CFrame.new(0, -2.75, 0) * CFrame.Angles(0, 0, math.rad(90)),
+            Size = Vector3.new(0.22, 5.2, 5.2),
+            CFrame = CFrame.new(0, -2.9, 0) * CFrame.Angles(0, 0, math.rad(90)),
             Anchored = true,
             CanCollide = false,
             CanQuery = false,
             CanTouch = false,
             CastShadow = false,
             Material = Enum.Material.SmoothPlastic,
-            Color = Color3.fromRGB(16, 18, 26),
+            Color = Color3.fromRGB(12, 14, 22),
         }, world)
         previewRing = new("Part", {
             Name = "PreviewRing",
-            Size = Vector3.new(0.06, 4.7, 4.7),
-            CFrame = CFrame.new(0, -2.64, 0) * CFrame.Angles(0, 0, math.rad(90)),
+            Size = Vector3.new(0.08, 5.4, 5.4),
+            CFrame = CFrame.new(0, -2.78, 0) * CFrame.Angles(0, 0, math.rad(90)),
             Anchored = true,
             CanCollide = false,
             CanQuery = false,
@@ -6170,7 +6536,35 @@ local function initCosmeticsAndMusic()
             CastShadow = false,
             Material = Enum.Material.Neon,
             Color = Theme.accent,
-            Transparency = 0.15,
+            Transparency = 0.10,
+        }, world)
+        -- inner glow ring
+        new("Part", {
+            Name = "PreviewRingInner",
+            Size = Vector3.new(0.04, 4.6, 4.6),
+            CFrame = CFrame.new(0, -2.70, 0) * CFrame.Angles(0, 0, math.rad(90)),
+            Anchored = true,
+            CanCollide = false,
+            CanQuery = false,
+            CanTouch = false,
+            CastShadow = false,
+            Material = Enum.Material.Neon,
+            Color = Theme.accent:Lerp(Color3.new(1, 1, 1), 0.4),
+            Transparency = 0.35,
+        }, world)
+        -- center pillar
+        new("Part", {
+            Name = "PreviewPillar",
+            Size = Vector3.new(0.12, 0.12, 2.0),
+            CFrame = CFrame.new(0, -1.6, 0),
+            Anchored = true,
+            CanCollide = false,
+            CanQuery = false,
+            CanTouch = false,
+            CastShadow = false,
+            Material = Enum.Material.Neon,
+            Color = Theme.accent:Lerp(Color3.new(1, 1, 1), 0.3),
+            Transparency = 0.45,
         }, world)
     end
 
