@@ -2,7 +2,7 @@
     Bench UI v2 — Roblox client script
     launcher -> mobile GUI (4 tabs)
     combat: camera / silent / hybrid aim
-    render: ESP 2D+3D, target FX, aurora sky, jump / walk / orbit effects
+    render: ESP 2D+3D, target FX, sky styles, jump / walk / orbit effects
     gui: fonts, colors, border, image background
     exec: paste into executor, run.
 ]]
@@ -65,6 +65,7 @@ local Config = {
     },
     sky = {
         enabled = false,
+        type = 1,
         speed = 40,
         colorA = Color3.fromRGB(40, 255, 180),
         colorB = Color3.fromRGB(120, 90, 255),
@@ -78,6 +79,7 @@ local Config = {
     walk = {
         enabled = false,
         mode = 1,
+        power = 1,
         color = Color3.fromRGB(255, 120, 30),
         rainbow = false,
     },
@@ -86,7 +88,7 @@ local Config = {
         kind = 1,
         count = 8,
         radius = 3.5,
-        speed = 1,
+        size = 1,
         color = Color3.fromRGB(255, 220, 80),
         rainbow = false,
     },
@@ -106,7 +108,8 @@ local Config = {
 local AIM_MODES = { "Camera", "Silent", "Hybrid" }
 local AIM_PARTS = { "Head", "HumanoidRootPart", "UpperTorso", "LowerTorso" }
 local ESP_STYLES = { "Box", "Corners", "Box + Corners", "Gradient" }
-local WALK_MODES = { "Fire", "Rainbow" }
+local SKY_NAMES = { "Aurora", "Sunset", "Galaxy", "Storm", "Nebula", "Void" }
+local WALK_MODES = { "Fire", "Rainbow", "Lightning", "Frost", "Void", "Custom" }
 local ORBIT_KINDS = { "Sparkles", "Lanterns", "Fireflies" }
 
 local Theme = {}
@@ -194,11 +197,15 @@ if getgenv and getgenv().BenchUnload then
     getgenv().BenchUnload = nil
 end
 pcall(function()
-    for _, name in ipairs({ "BenchUI", "BenchESP", "BenchFX" }) do
+    for _, name in ipairs({ "BenchUI", "BenchESP" }) do
         local old = LocalPlayer.PlayerGui:FindFirstChild(name)
         if old then
             old:Destroy()
         end
+    end
+    local oldFx = workspace:FindFirstChild("BenchFX")
+    if oldFx then
+        oldFx:Destroy()
     end
 end)
 
@@ -1204,10 +1211,13 @@ end)
 colorPicker(targetGroup, "Target color", Config.esp, "targetColor")
 
 local skyGroup = collapsible(pages.render, "sky shader", true)
-toggleRow(skyGroup, "Aurora sky", Config.sky.enabled, function(v)
+toggleRow(skyGroup, "Sky shader", Config.sky.enabled, function(v)
     Config.sky.enabled = v
 end)
-toggleRow(skyGroup, "Rainbow aurora", Config.sky.rainbow, function(v)
+cycleRow(skyGroup, "Sky style", SKY_NAMES, Config.sky.type, function(i)
+    Config.sky.type = i
+end)
+toggleRow(skyGroup, "Rainbow sky", Config.sky.rainbow, function(v)
     Config.sky.rainbow = v
 end)
 sliderRow(skyGroup, "Sky speed", 0, 100, Config.sky.speed, "", function(v)
@@ -1226,19 +1236,22 @@ end)
 colorPicker(jumpGroup, "Jump color", Config.jump, "color")
 
 local walkGroup = collapsible(pages.render, "walk fx", false)
-toggleRow(walkGroup, "Walk ribbon", Config.walk.enabled, function(v)
+toggleRow(walkGroup, "Walk trail", Config.walk.enabled, function(v)
     Config.walk.enabled = v
 end)
 cycleRow(walkGroup, "Walk style", WALK_MODES, Config.walk.mode, function(i)
     Config.walk.mode = i
 end)
+sliderRow(walkGroup, "Walk power", 1, 3, Config.walk.power, "", function(v)
+    Config.walk.power = v
+end)
 toggleRow(walkGroup, "Rainbow walk", Config.walk.rainbow, function(v)
     Config.walk.rainbow = v
 end)
-colorPicker(walkGroup, "Walk color", Config.walk, "color")
+colorPicker(walkGroup, "Custom color", Config.walk, "color")
 
 local orbitGroup = collapsible(pages.render, "orbit fx", false)
-toggleRow(orbitGroup, "Orbit ambient", Config.orbit.enabled, function(v)
+toggleRow(orbitGroup, "Orbit fx", Config.orbit.enabled, function(v)
     Config.orbit.enabled = v
 end)
 cycleRow(orbitGroup, "Orbit style", ORBIT_KINDS, Config.orbit.kind, function(i)
@@ -1249,6 +1262,9 @@ sliderRow(orbitGroup, "Orbit rate", 1, 10, Config.orbit.count, "", function(v)
 end)
 sliderRow(orbitGroup, "Orbit radius", 2, 10, math.floor(Config.orbit.radius), "", function(v)
     Config.orbit.radius = v
+end)
+sliderRow(orbitGroup, "Orbit size", 1, 3, Config.orbit.size, "", function(v)
+    Config.orbit.size = v
 end)
 toggleRow(orbitGroup, "Rainbow orbit", Config.orbit.rainbow, function(v)
     Config.orbit.rainbow = v
@@ -2072,8 +2088,105 @@ end
 local fxFolder = new("Folder", { Name = "BenchFX" }, workspace)
 local skyState = nil
 local auroraRays = {}
+local stormTimer = 0
 
-local function makeAurora()
+local SKY_STYLES = {
+    {
+        name = "Aurora",
+        clock = 0, brightness = 1.2, fog = 5000, stars = 5000, bodies = true,
+        ambient = Color3.fromRGB(12, 14, 34),
+        outdoor = Color3.fromRGB(20, 24, 52),
+        atmo = Color3.fromRGB(34, 52, 110),
+        decay = Color3.fromRGB(22, 30, 66),
+        density = 0.28,
+        haze = 0.7,
+        tint = Color3.fromRGB(190, 255, 240), saturation = 0.15, contrast = 0.05,
+        rays = { count = 20, spread = 2300, top = 340, bottom = -280, width = 44, speed = 1 },
+        bands = { count = 3, spread = 1900, top = 120, bottom = -80, width = 380, speed = 0.5 },
+        lightning = false,
+    },
+    {
+        name = "Sunset",
+        clock = 17.4, brightness = 2, fog = 7000, stars = 400, bodies = true,
+        ambient = Color3.fromRGB(80, 52, 60),
+        outdoor = Color3.fromRGB(150, 90, 80),
+        atmo = Color3.fromRGB(255, 150, 100),
+        decay = Color3.fromRGB(140, 70, 80),
+        density = 0.4,
+        haze = 0.8,
+        tint = Color3.fromRGB(255, 205, 175), saturation = 0.2, contrast = 0.08,
+        colorA = Color3.fromRGB(255, 170, 80), colorB = Color3.fromRGB(255, 80, 140),
+        rays = { count = 0, spread = 1, top = 0, bottom = 0, width = 0, speed = 0 },
+        bands = { count = 7, spread = 2600, top = -120, bottom = -300, width = 560, speed = 0.35 },
+        lightning = false,
+    },
+    {
+        name = "Galaxy",
+        clock = 0, brightness = 1, fog = 6000, stars = 5000, bodies = true,
+        ambient = Color3.fromRGB(10, 12, 28),
+        outdoor = Color3.fromRGB(18, 22, 46),
+        atmo = Color3.fromRGB(26, 34, 80),
+        decay = Color3.fromRGB(18, 22, 52),
+        density = 0.22,
+        haze = 0.45,
+        tint = Color3.fromRGB(210, 215, 255), saturation = 0.1, contrast = 0.1,
+        colorA = Color3.fromRGB(120, 180, 255), colorB = Color3.fromRGB(180, 120, 255),
+        rays = { count = 0, spread = 1, top = 0, bottom = 0, width = 0, speed = 0 },
+        bands = { count = 8, spread = 3000, top = 260, bottom = -220, width = 640, speed = 0.18 },
+        lightning = false,
+    },
+    {
+        name = "Storm",
+        clock = 22, brightness = 0.7, fog = 3000, stars = 0,
+        ambient = Color3.fromRGB(18, 20, 26),
+        outdoor = Color3.fromRGB(30, 34, 44),
+        atmo = Color3.fromRGB(40, 46, 60),
+        decay = Color3.fromRGB(20, 24, 34),
+        density = 0.55,
+        haze = 1,
+        tint = Color3.fromRGB(190, 200, 220), saturation = -0.2, contrast = 0.2,
+        colorA = Color3.fromRGB(90, 100, 120), colorB = Color3.fromRGB(30, 36, 50),
+        rays = { count = 0, spread = 1, top = 0, bottom = 0, width = 0, speed = 0 },
+        bands = { count = 9, spread = 3200, top = 380, bottom = 60, width = 720, speed = 1.6 },
+        lightning = true,
+    },
+    {
+        name = "Nebula",
+        clock = 0, brightness = 1.1, fog = 6000, stars = 4500, bodies = true,
+        ambient = Color3.fromRGB(14, 10, 30),
+        outdoor = Color3.fromRGB(22, 16, 48),
+        atmo = Color3.fromRGB(60, 30, 110),
+        decay = Color3.fromRGB(40, 20, 80),
+        density = 0.26,
+        haze = 0.5,
+        tint = Color3.fromRGB(235, 200, 255), saturation = 0.25, contrast = 0.08,
+        colorA = Color3.fromRGB(80, 255, 220), colorB = Color3.fromRGB(255, 80, 200),
+        rays = { count = 0, spread = 1, top = 0, bottom = 0, width = 0, speed = 0 },
+        bands = { count = 10, spread = 2800, top = 300, bottom = -260, width = 700, speed = 0.22 },
+        lightning = false,
+    },
+    {
+        name = "Void",
+        clock = 0, brightness = 0.35, fog = 8000, stars = 5000, bodies = true,
+        ambient = Color3.fromRGB(4, 5, 10),
+        outdoor = Color3.fromRGB(8, 10, 18),
+        atmo = Color3.fromRGB(6, 8, 16),
+        decay = Color3.fromRGB(4, 6, 12),
+        density = 0.1,
+        haze = 0.2,
+        tint = Color3.fromRGB(200, 210, 255), saturation = 0, contrast = 0.15,
+        colorA = Color3.fromRGB(80, 120, 255), colorB = Color3.fromRGB(120, 60, 200),
+        rays = { count = 0, spread = 1, top = 0, bottom = 0, width = 0, speed = 0 },
+        bands = { count = 0, spread = 1, top = 0, bottom = 0, width = 0, speed = 0 },
+        lightning = false,
+    },
+}
+
+local function skyStyle()
+    return SKY_STYLES[Config.sky.type] or SKY_STYLES[1]
+end
+
+local function makeAurora(style)
     for _, entry in ipairs(auroraRays) do
         if entry.p0 then
             entry.p0:Destroy()
@@ -2084,12 +2197,13 @@ local function makeAurora()
     end
     auroraRays = {}
 
-    local function addBeam(kind, index, width0, width1)
+    local function add(kind, index)
         local p0 = new("Part", {
             Anchored = true,
             CanCollide = false,
             CanQuery = false,
             CanTouch = false,
+            CastShadow = false,
             Transparency = 1,
             Size = Vector3.new(1, 1, 1),
         }, fxFolder)
@@ -2098,6 +2212,7 @@ local function makeAurora()
             CanCollide = false,
             CanQuery = false,
             CanTouch = false,
+            CastShadow = false,
             Transparency = 1,
             Size = Vector3.new(1, 1, 1),
         }, fxFolder)
@@ -2110,8 +2225,8 @@ local function makeAurora()
             Segments = 16,
             LightEmission = 1,
             LightInfluence = 0,
-            Width0 = width0,
-            Width1 = width1,
+            Width0 = 80,
+            Width1 = 120,
             Color = ColorSequence.new(Config.sky.colorA, Config.sky.colorB),
             Transparency = NumberSequence.new({
                 NumberSequenceKeypoint.new(0, 1),
@@ -2127,14 +2242,17 @@ local function makeAurora()
             p1 = p1,
             beam = beam,
             phase = math.random() * math.pi * 2,
+            depth = (kind == "ray")
+                and ((math.random() - 0.5) * 320)
+                or ((math.random() - 0.5) * 120),
         }
     end
 
-    for i = 1, 3 do
-        addBeam("ribbon", i, 320, 520)
+    for i = 1, style.rays.count do
+        add("ray", i)
     end
-    for i = 1, 20 do
-        addBeam("ray", i, 44, 92)
+    for i = 1, style.bands.count do
+        add("band", i)
     end
 end
 
@@ -2142,11 +2260,15 @@ local function enableSky()
     if skyState then
         return
     end
+    local style = skyStyle()
     local oldSky = Lighting:FindFirstChildOfClass("Sky")
     local oldAtmo = Lighting:FindFirstChildOfClass("Atmosphere")
+    local oldCC = Lighting:FindFirstChildOfClass("ColorCorrectionEffect")
     skyState = {
+        style = Config.sky.type,
         sky = oldSky,
         atmo = oldAtmo,
+        cc = oldCC,
         clock = Lighting.ClockTime,
         ambient = Lighting.Ambient,
         outdoor = Lighting.OutdoorAmbient,
@@ -2159,24 +2281,35 @@ local function enableSky()
     if oldAtmo then
         oldAtmo.Parent = nil
     end
+    if oldCC then
+        oldCC.Parent = nil
+    end
+
     skyState.newSky = new("Sky", {
-        StarCount = 6000,
-        CelestialBodiesShown = false,
+        StarCount = style.stars,
+        CelestialBodiesShown = style.bodies or false,
     }, Lighting)
     skyState.newAtmo = new("Atmosphere", {
-        Density = 0.28,
+        Density = style.density,
         Offset = 0.1,
         Glare = 0.2,
-        Haze = 0.8,
-        Color = Color3.fromRGB(34, 52, 110),
-        Decay = Color3.fromRGB(22, 30, 66),
+        Haze = style.haze or 0.9,
+        Color = style.atmo,
+        Decay = style.decay,
     }, Lighting)
-    Lighting.ClockTime = 0
-    Lighting.Ambient = Color3.fromRGB(12, 14, 34)
-    Lighting.OutdoorAmbient = Color3.fromRGB(20, 24, 52)
-    Lighting.Brightness = 1.2
-    Lighting.FogEnd = 5000
-    makeAurora()
+    skyState.newCC = new("ColorCorrectionEffect", {
+        TintColor = style.tint,
+        Saturation = style.saturation,
+        Contrast = style.contrast,
+    }, Lighting)
+
+    Lighting.ClockTime = style.clock
+    Lighting.Ambient = style.ambient
+    Lighting.OutdoorAmbient = style.outdoor
+    Lighting.Brightness = style.brightness
+    Lighting.FogEnd = style.fog
+
+    makeAurora(style)
 end
 
 local function disableSky()
@@ -2198,11 +2331,17 @@ local function disableSky()
     if skyState.newAtmo then
         skyState.newAtmo:Destroy()
     end
+    if skyState.newCC then
+        skyState.newCC:Destroy()
+    end
     if skyState.sky then
         skyState.sky.Parent = Lighting
     end
     if skyState.atmo then
         skyState.atmo.Parent = Lighting
+    end
+    if skyState.cc then
+        skyState.cc.Parent = Lighting
     end
     Lighting.ClockTime = skyState.clock
     Lighting.Ambient = skyState.ambient
@@ -2212,12 +2351,92 @@ local function disableSky()
     skyState = nil
 end
 
-local function updateAurora()
+local function stormFlash()
+    if not skyState then
+        return
+    end
+    local cam = workspace.CurrentCamera
+    if not cam then
+        return
+    end
+    local style = skyStyle()
+    local origin = cam.CFrame.Position
+        + cam.CFrame.LookVector * 900
+        + Vector3.new(0, 500, 0)
+    local right = cam.CFrame.RightVector
+    local x = (math.random() - 0.5) * 1400
+    local p0 = new("Part", {
+        Anchored = true,
+        CanCollide = false,
+        CanQuery = false,
+        CanTouch = false,
+        CastShadow = false,
+        Transparency = 1,
+        Size = Vector3.new(1, 1, 1),
+    }, fxFolder)
+    local p1 = new("Part", {
+        Anchored = true,
+        CanCollide = false,
+        CanQuery = false,
+        CanTouch = false,
+        CastShadow = false,
+        Transparency = 1,
+        Size = Vector3.new(1, 1, 1),
+    }, fxFolder)
+    p0.Position = origin + right * x
+    p1.Position = origin + right * (x + (math.random() - 0.5) * 200)
+        + Vector3.new(0, -900, 0)
+    local a0 = new("Attachment", {}, p0)
+    local a1 = new("Attachment", {}, p1)
+    new("Beam", {
+        Attachment0 = a0,
+        Attachment1 = a1,
+        FaceCamera = true,
+        Segments = 10,
+        LightEmission = 1,
+        LightInfluence = 0,
+        Width0 = 16,
+        Width1 = 6,
+        Color = ColorSequence.new(Color3.fromRGB(225, 235, 255)),
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 1),
+            NumberSequenceKeypoint.new(0.2, 0.05),
+            NumberSequenceKeypoint.new(1, 0.85),
+        }),
+    }, p0)
+    new("PointLight", {
+        Brightness = 6,
+        Range = 60,
+        Color = Color3.fromRGB(200, 220, 255),
+    }, p0)
+
+    TweenService:Create(Lighting, TweenInfo.new(0.08), {
+        Brightness = math.min(style.brightness + 5, 8),
+    }):Play()
+    task.delay(0.12, function()
+        if skyState then
+            TweenService:Create(Lighting, TweenInfo.new(0.4), {
+                Brightness = style.brightness,
+            }):Play()
+        end
+    end)
+    task.delay(0.4, function()
+        p0:Destroy()
+        p1:Destroy()
+    end)
+end
+
+local function updateAurora(dt)
     if not Config.sky.enabled then
         disableSky()
         return
     end
+    if skyState and skyState.style ~= Config.sky.type then
+        disableSky()
+    end
     enableSky()
+
+    local style = skyStyle()
     local cam = workspace.CurrentCamera
     if not cam then
         return
@@ -2228,42 +2447,56 @@ local function updateAurora()
         + cam.CFrame.LookVector * 1400
         + Vector3.new(0, 700, 0)
     local right = cam.CFrame.RightVector
+    local look = cam.CFrame.LookVector
 
-    local ca, cb = Config.sky.colorA, Config.sky.colorB
+    local ca, cb
+    if style.colorA and style.colorB then
+        ca, cb = style.colorA, style.colorB
+    else
+        ca, cb = Config.sky.colorA, Config.sky.colorB
+    end
     if Config.sky.rainbow then
         ca = Color3.fromHSV((t * 0.08) % 1, 0.85, 1)
         cb = Color3.fromHSV((t * 0.08 + 0.35) % 1, 0.85, 1)
     end
 
     for _, entry in ipairs(auroraRays) do
-        local i = entry.index
         local phase = entry.phase
+        local beam = entry.beam
 
-        if entry.kind == "ribbon" then
-            local u = (i - 2) / 2
-            local sway = math.sin(t * 0.5 + phase) * 240
+        if entry.kind == "ray" then
+            local half = math.max(style.rays.count / 2, 1)
+            local u = (entry.index - (style.rays.count + 1) / 2) / half
+            local sway = math.sin(t * style.rays.speed + u * 5 + phase) * 180
+            local height = style.rays.top + math.sin(t * 0.9 + entry.index) * 150
             entry.p0.Position = origin
-                + right * (u * 1900 + sway)
-                + Vector3.new(0, 120 + math.sin(t * 0.6 + phase) * 100, 0)
-            entry.p1.Position = origin
-                + right * (u * 1900 - sway * 0.6)
-                + Vector3.new(0, -80 + math.cos(t * 0.5 + phase) * 80, 0)
-        else
-            local u = (i - 10.5) / 10
-            local sway = math.sin(t * 0.7 + u * 5 + phase) * 180
-            local height = 340 + math.sin(t * 0.9 + i) * 150
-            entry.p0.Position = origin
-                + right * (u * 2300 + sway)
+                + right * (u * style.rays.spread + sway)
+                + look * entry.depth
                 + Vector3.new(0, height, 0)
             entry.p1.Position = origin
-                + right * (u * 2300 + sway * 0.55)
-                + Vector3.new(0, -280 + math.cos(t * 0.8 + i) * 90, 0)
-            entry.beam.Width0 = 40 + 44 * (0.5 + 0.5 * math.sin(t * 1.1 + i))
-            entry.beam.Width1 = entry.beam.Width0 * 1.9
+                + right * (u * style.rays.spread + sway * 0.55)
+                + look * (entry.depth * 0.8)
+                + Vector3.new(0, style.rays.bottom + math.cos(t * 0.8 + entry.index) * 90, 0)
+            beam.Width0 = style.rays.width * (0.7 + 0.5 * math.sin(t * 1.1 + entry.index))
+            beam.Width1 = beam.Width0 * 1.9
+        else
+            local half = math.max(style.bands.count / 2, 1)
+            local u = (entry.index - (style.bands.count + 1) / 2) / half
+            local sway = math.sin(t * style.bands.speed + u * 4 + phase) * 260
+            entry.p0.Position = origin
+                + right * (u * style.bands.spread + sway)
+                + look * entry.depth
+                + Vector3.new(0, style.bands.top + math.sin(t * 0.6 + phase) * 90, 0)
+            entry.p1.Position = origin
+                + right * (u * style.bands.spread + sway * 0.7 + 340)
+                + look * (entry.depth * 0.6)
+                + Vector3.new(0, style.bands.bottom + math.cos(t * 0.5 + phase) * 70, 0)
+            beam.Width0 = style.bands.width * (0.8 + 0.3 * math.sin(t * 0.8 + entry.index))
+            beam.Width1 = beam.Width0 * 1.45
         end
 
         local fade = 0.42 + 0.22 * math.sin(t * 1.3 + phase)
-        entry.beam.Transparency = NumberSequence.new({
+        beam.Transparency = NumberSequence.new({
             NumberSequenceKeypoint.new(0, 1),
             NumberSequenceKeypoint.new(0.15, math.clamp(fade + 0.15, 0, 1)),
             NumberSequenceKeypoint.new(0.7, math.clamp(fade, 0, 1)),
@@ -2272,11 +2505,23 @@ local function updateAurora()
 
         local c0, c1 = ca, cb
         if entry.kind == "ray" then
-            local k = (i - 1) / 20
+            local k = entry.index / math.max(style.rays.count, 1)
             c0 = ca:Lerp(cb, k * 0.6)
             c1 = cb:Lerp(ca, 0.35)
         end
-        entry.beam.Color = ColorSequence.new(c0, c1)
+        beam.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, c0:Lerp(Color3.new(1, 1, 1), 0.35)),
+            ColorSequenceKeypoint.new(0.45, c0),
+            ColorSequenceKeypoint.new(1, c1),
+        })
+    end
+
+    if style.lightning then
+        stormTimer = stormTimer - (dt or 0.016)
+        if stormTimer <= 0 then
+            stormTimer = 2.5 + math.random() * 4.5
+            stormFlash()
+        end
     end
 end
 
@@ -2295,6 +2540,7 @@ local function shockwave(pos, color, startRadius, endRadius, duration)
                 CanCollide = false,
                 CanQuery = false,
                 CanTouch = false,
+                CastShadow = false,
                 Material = Enum.Material.Neon,
                 Color = color,
                 Size = Vector3.new(0.35, 0.12, 1.4),
@@ -2352,6 +2598,9 @@ local function jumpFx()
 
     shockwave(pos, col, 1.4, 14, 0.55)
     task.delay(0.07, function()
+        if not fxFolder.Parent then
+            return
+        end
         shockwave(pos, col:Lerp(Color3.new(1, 1, 1), 0.5), 0.8, 9, 0.45)
     end)
 
@@ -2360,6 +2609,7 @@ local function jumpFx()
         CanCollide = false,
         CanQuery = false,
         CanTouch = false,
+        CastShadow = false,
         Material = Enum.Material.Neon,
         Color = col,
         Shape = Enum.PartType.Cylinder,
@@ -2382,6 +2632,7 @@ local function jumpFx()
         CanCollide = false,
         CanQuery = false,
         CanTouch = false,
+        CastShadow = false,
         Transparency = 1,
         Size = Vector3.new(1, 1, 1),
         CFrame = CFrame.new(pos + Vector3.new(0, 0.4, 0)),
@@ -2425,14 +2676,119 @@ track(LocalPlayer.CharacterAdded:Connect(hookCharacter))
 
 --// walk fx
 local walkTrail = nil
+local walkGlow = nil
+local walkLight = nil
 local walkAttach0 = nil
 local walkAttach1 = nil
+local walkRootAttach = nil
+local walkEmitters = {}
+local walkAura = nil
 local walkChar = nil
+
+local WALK_STYLES = {
+    {
+        name = "Fire",
+        colorA = Color3.fromRGB(255, 200, 80),
+        colorB = Color3.fromRGB(255, 50, 0),
+        trailTexture = "rbxasset://textures/particles/fire_main.dds",
+        glowTexture = "rbxasset://textures/particles/smoke_main.dds",
+        particleTexture = "rbxasset://textures/particles/fire_main.dds",
+        lifetime = 0.85,
+        width = 1.5,
+        rate = 55,
+        accelY = 8,
+        speedMin = 2,
+        speedMax = 6,
+    },
+    {
+        name = "Rainbow",
+        colorA = Color3.fromRGB(255, 80, 80),
+        colorB = Color3.fromRGB(80, 160, 255),
+        trailTexture = "rbxasset://textures/particles/sparkles_main.dds",
+        glowTexture = "rbxasset://textures/particles/smoke_main.dds",
+        particleTexture = "rbxasset://textures/particles/sparkles_main.dds",
+        lifetime = 1,
+        width = 1.8,
+        rate = 65,
+        accelY = 4,
+        speedMin = 2,
+        speedMax = 7,
+    },
+    {
+        name = "Lightning",
+        colorA = Color3.fromRGB(150, 240, 255),
+        colorB = Color3.fromRGB(80, 120, 255),
+        trailTexture = "rbxasset://textures/particles/sparkles_main.dds",
+        glowTexture = "rbxasset://textures/particles/smoke_main.dds",
+        particleTexture = "rbxasset://textures/particles/sparkles_main.dds",
+        lifetime = 0.5,
+        width = 1.1,
+        rate = 80,
+        accelY = 2,
+        speedMin = 4,
+        speedMax = 10,
+    },
+    {
+        name = "Frost",
+        colorA = Color3.fromRGB(220, 250, 255),
+        colorB = Color3.fromRGB(120, 190, 255),
+        trailTexture = "rbxasset://textures/particles/smoke_main.dds",
+        glowTexture = "rbxasset://textures/particles/sparkles_main.dds",
+        particleTexture = "rbxasset://textures/particles/sparkles_main.dds",
+        lifetime = 1.15,
+        width = 1.9,
+        rate = 45,
+        accelY = -2,
+        speedMin = 1,
+        speedMax = 4,
+    },
+    {
+        name = "Void",
+        colorA = Color3.fromRGB(190, 90, 255),
+        colorB = Color3.fromRGB(60, 0, 120),
+        trailTexture = "rbxasset://textures/particles/sparkles_main.dds",
+        glowTexture = "rbxasset://textures/particles/smoke_main.dds",
+        particleTexture = "rbxasset://textures/particles/sparkles_main.dds",
+        lifetime = 1,
+        width = 1.6,
+        rate = 60,
+        accelY = 3,
+        speedMin = 1.5,
+        speedMax = 5,
+    },
+    {
+        name = "Custom",
+        custom = true,
+        colorA = Color3.fromRGB(255, 255, 255),
+        colorB = Color3.fromRGB(120, 200, 255),
+        trailTexture = "rbxasset://textures/particles/sparkles_main.dds",
+        glowTexture = "rbxasset://textures/particles/smoke_main.dds",
+        particleTexture = "rbxasset://textures/particles/sparkles_main.dds",
+        lifetime = 1,
+        width = 1.6,
+        rate = 60,
+        accelY = 4,
+        speedMin = 2,
+        speedMax = 6,
+    },
+}
+
+local function walkStyle()
+    return WALK_STYLES[Config.walk.mode] or WALK_STYLES[1]
+end
 
 local function clearWalkTrail()
     if walkTrail then
         walkTrail:Destroy()
         walkTrail = nil
+    end
+    if walkGlow then
+        walkGlow:Destroy()
+        walkGlow = nil
+    end
+    if walkLight then
+        walkLight:Destroy()
+        walkLight = nil
     end
     if walkAttach0 then
         walkAttach0:Destroy()
@@ -2442,6 +2798,12 @@ local function clearWalkTrail()
         walkAttach1:Destroy()
         walkAttach1 = nil
     end
+    if walkRootAttach then
+        walkRootAttach:Destroy()
+        walkRootAttach = nil
+    end
+    walkEmitters = {}
+    walkAura = nil
     walkChar = nil
 end
 
@@ -2452,204 +2814,818 @@ local function buildWalkTrail(char)
         return
     end
     walkChar = char
+    local style = walkStyle()
+
     walkAttach0 = new("Attachment", {
-        Position = Vector3.new(0.8, -2.1, 0),
+        Position = Vector3.new(0.65, -2.4, 0),
     }, root)
     walkAttach1 = new("Attachment", {
-        Position = Vector3.new(-0.8, -2.1, 0),
+        Position = Vector3.new(-0.65, -2.4, 0),
     }, root)
+    walkRootAttach = new("Attachment", {
+        Position = Vector3.new(0, -0.4, 0),
+    }, root)
+
     walkTrail = new("Trail", {
         Attachment0 = walkAttach0,
         Attachment1 = walkAttach1,
-        Lifetime = 0.6,
+        Lifetime = style.lifetime,
         MinLength = 0.1,
         LightEmission = 1,
         LightInfluence = 0,
         FaceCamera = true,
-        Texture = "rbxasset://textures/particles/fire_main.dds",
+        Texture = style.trailTexture,
         TextureMode = Enum.TextureMode.Stretch,
         WidthScale = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 1),
-            NumberSequenceKeypoint.new(1, 0.15),
+            NumberSequenceKeypoint.new(0, style.width),
+            NumberSequenceKeypoint.new(1, 0.12),
         }),
         Transparency = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 0.1),
-            NumberSequenceKeypoint.new(0.65, 0.55),
+            NumberSequenceKeypoint.new(0, 0.05),
+            NumberSequenceKeypoint.new(0.65, 0.45),
             NumberSequenceKeypoint.new(1, 1),
         }),
-        Color = ColorSequence.new(Config.walk.color),
+        Color = ColorSequence.new(style.colorA, style.colorB),
         Enabled = false,
+    }, root)
+
+    walkGlow = new("Trail", {
+        Attachment0 = walkAttach0,
+        Attachment1 = walkAttach1,
+        Lifetime = style.lifetime * 1.6,
+        MinLength = 0.1,
+        LightEmission = 0.7,
+        LightInfluence = 0,
+        FaceCamera = true,
+        Texture = style.glowTexture,
+        TextureMode = Enum.TextureMode.Stretch,
+        WidthScale = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, style.width * 2.2),
+            NumberSequenceKeypoint.new(1, 0.3),
+        }),
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.55),
+            NumberSequenceKeypoint.new(0.7, 0.8),
+            NumberSequenceKeypoint.new(1, 1),
+        }),
+        Color = ColorSequence.new(style.colorA, style.colorB),
+        Enabled = false,
+    }, root)
+
+    for i = 1, 2 do
+        local att = (i == 1) and walkAttach0 or walkAttach1
+        walkEmitters[i] = new("ParticleEmitter", {
+            Color = ColorSequence.new(style.colorA, style.colorB),
+            Size = NumberSequence.new({
+                NumberSequenceKeypoint.new(0, 0.55),
+                NumberSequenceKeypoint.new(1, 0.05),
+            }),
+            Transparency = NumberSequence.new({
+                NumberSequenceKeypoint.new(0, 0.1),
+                NumberSequenceKeypoint.new(1, 1),
+            }),
+            Lifetime = NumberRange.new(0.35, 0.75),
+            Speed = NumberRange.new(style.speedMin, style.speedMax),
+            SpreadAngle = Vector2.new(30, 30),
+            Acceleration = Vector3.new(0, style.accelY or 8, 0),
+            Rate = 0,
+            LightEmission = 1,
+            Texture = style.particleTexture,
+            Rotation = NumberRange.new(0, 360),
+            RotSpeed = NumberRange.new(-200, 200),
+            Enabled = false,
+        }, att)
+    end
+
+    walkAura = new("ParticleEmitter", {
+        Color = ColorSequence.new(style.colorA, style.colorB),
+        Size = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.35),
+            NumberSequenceKeypoint.new(1, 0),
+        }),
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.35),
+            NumberSequenceKeypoint.new(1, 1),
+        }),
+        Lifetime = NumberRange.new(0.5, 1),
+        Speed = NumberRange.new(0.5, 2),
+        SpreadAngle = Vector2.new(180, 180),
+        Acceleration = Vector3.new(0, 2, 0),
+        Rate = 0,
+        LightEmission = 1,
+        Texture = "rbxasset://textures/particles/sparkles_main.dds",
+        Enabled = false,
+    }, walkRootAttach)
+
+    walkLight = new("PointLight", {
+        Brightness = 0,
+        Range = 9,
+        Color = style.colorA,
     }, root)
 end
 
 local function updateWalk()
+    local style = walkStyle()
+
     if not Config.walk.enabled then
-        if walkTrail then
+        if walkTrail and walkTrail.Parent then
             walkTrail.Enabled = false
+        end
+        if walkGlow and walkGlow.Parent then
+            walkGlow.Enabled = false
+        end
+        for _, emitter in ipairs(walkEmitters) do
+            if emitter and emitter.Parent then
+                emitter.Rate = 0
+                emitter.Enabled = false
+            end
+        end
+        if walkAura and walkAura.Parent then
+            walkAura.Rate = 0
+            walkAura.Enabled = false
+        end
+        if walkLight and walkLight.Parent then
+            walkLight.Brightness = 0
         end
         return
     end
 
     local char = LocalPlayer.Character
-    if char ~= walkChar then
+    if char ~= walkChar or not walkTrail or not walkTrail.Parent then
         buildWalkTrail(char)
     end
-    if not walkTrail then
+    if not walkTrail or not walkTrail.Parent then
         return
     end
 
     local hum = char and char:FindFirstChildOfClass("Humanoid")
-    local moving = hum ~= nil and hum.MoveDirection.Magnitude > 0.1
-    walkTrail.Enabled = moving
-    if not moving then
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not hum or not root then
         return
     end
 
-    local t = tick()
-    if Config.walk.rainbow or Config.walk.mode == 2 then
-        local h = (t * 0.55) % 1
-        walkTrail.Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromHSV(h, 0.9, 1)),
-            ColorSequenceKeypoint.new(0.5, Color3.fromHSV((h + 0.25) % 1, 0.9, 1)),
-            ColorSequenceKeypoint.new(1, Color3.fromHSV((h + 0.5) % 1, 0.9, 1)),
-        })
-        walkTrail.Texture = "rbxasset://textures/particles/sparkles_main.dds"
-        walkTrail.WidthScale = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 1.4),
-            NumberSequenceKeypoint.new(1, 0.2),
-        })
-    else
-        walkTrail.Color = ColorSequence.new(Config.walk.color)
-        walkTrail.Texture = "rbxasset://textures/particles/fire_main.dds"
-        walkTrail.WidthScale = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 1),
-            NumberSequenceKeypoint.new(1, 0.15),
-        })
+    local speed = root.AssemblyLinearVelocity.Magnitude
+    local moving = hum.MoveDirection.Magnitude > 0.1 or speed > 2
+    local boost = math.clamp(speed / 22, 0, 1)
+    local power = 0.6 + (Config.walk.power or 1) * 0.4
+    local width = style.width * power * (1 + boost * 0.9)
+
+    walkTrail.Enabled = moving
+    walkGlow.Enabled = moving
+    walkTrail.Lifetime = style.lifetime * (1 + boost * 0.5)
+    walkGlow.Lifetime = walkTrail.Lifetime * 1.6
+    walkTrail.WidthScale = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, width),
+        NumberSequenceKeypoint.new(1, 0.12),
+    })
+    walkGlow.WidthScale = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, width * 2.2),
+        NumberSequenceKeypoint.new(1, 0.3),
+    })
+
+    local ca, cb = style.colorA, style.colorB
+    if style.custom then
+        ca = Config.walk.color
+        cb = Config.walk.color:Lerp(Color3.new(1, 1, 1), 0.3)
+    end
+    if Config.walk.rainbow or style.name == "Rainbow" then
+        local h = (tick() * 0.55) % 1
+        ca = Color3.fromHSV(h, 0.9, 1)
+        cb = Color3.fromHSV((h + 0.33) % 1, 0.9, 1)
+    end
+    local seq = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, ca),
+        ColorSequenceKeypoint.new(0.5, cb),
+        ColorSequenceKeypoint.new(1, ca:Lerp(Color3.new(1, 1, 1), 0.35)),
+    })
+    walkTrail.Color = seq
+    walkGlow.Color = ColorSequence.new(
+        ca:Lerp(Color3.new(1, 1, 1), 0.25),
+        cb:Lerp(Color3.new(1, 1, 1), 0.15)
+    )
+    walkTrail.Texture = style.trailTexture
+    walkGlow.Texture = style.glowTexture
+
+    local rate = math.min(style.rate * power * (1 + boost), 180)
+    for _, emitter in ipairs(walkEmitters) do
+        if emitter and emitter.Parent then
+            emitter.Color = seq
+            emitter.Texture = style.particleTexture
+            emitter.Speed = NumberRange.new(
+                style.speedMin * (1 + boost * 0.6),
+                style.speedMax * (1 + boost * 0.6)
+            )
+            emitter.Acceleration = Vector3.new(0, style.accelY or 8, 0)
+            emitter.Rate = moving and rate or 0
+            emitter.Enabled = moving
+        end
+    end
+
+    if walkAura and walkAura.Parent then
+        walkAura.Color = seq
+        walkAura.Rate = moving and math.min(12 * power * (1 + boost), 40) or 0
+        walkAura.Enabled = moving
+    end
+
+    if walkLight and walkLight.Parent then
+        walkLight.Color = ca
+        walkLight.Brightness = moving and (1.2 + boost * 2.2) or 0
+        walkLight.Range = 8 + boost * 4
     end
 end
 
 --// orbit fx
-local orbitParts = {}
+local orbitEntities = {}
 local orbitAcc = 0
 
 local function clearOrbit()
-    for _, part in ipairs(orbitParts) do
-        if part and part.Parent then
-            part:Destroy()
+    for _, entity in ipairs(orbitEntities) do
+        if entity.model then
+            entity.model:Destroy()
         end
     end
-    orbitParts = {}
+    orbitEntities = {}
+    orbitAcc = 0
 end
 
-local function spawnOrbitFx()
+local function orbitColor()
+    if Config.orbit.rainbow then
+        return Color3.fromHSV((tick() * 0.35 + math.random()) % 1, 0.85, 1)
+    end
+    return Config.orbit.color
+end
+
+local function fxPart(model, size, cf, color, transparency, material, shape)
+    return new("Part", {
+        Anchored = true,
+        CanCollide = false,
+        CanQuery = false,
+        CanTouch = false,
+        CastShadow = false,
+        Size = size,
+        CFrame = cf,
+        Color = color,
+        Transparency = transparency or 0,
+        Material = material or Enum.Material.SmoothPlastic,
+        Shape = shape or Enum.PartType.Block,
+    }, model)
+end
+
+local function registerOrbit(model, base, life, kind, extra)
+    local parts = {}
+    local lights = {}
+    for _, d in ipairs(model:GetDescendants()) do
+        if d:IsA("BasePart") then
+            parts[#parts + 1] = { part = d, base = d.Transparency }
+        elseif d:IsA("PointLight") then
+            lights[#lights + 1] = { light = d, base = d.Brightness }
+        end
+    end
+    orbitEntities[#orbitEntities + 1] = {
+        model = model,
+        base = base,
+        t0 = tick(),
+        life = life,
+        kind = kind,
+        parts = parts,
+        lights = lights,
+        phase = math.random() * math.pi * 2,
+        scale = extra and extra.scale or 1,
+        trail = extra and extra.trail or nil,
+        emitter = extra and extra.emitter or nil,
+        wingL = extra and extra.wingL or nil,
+        wingR = extra and extra.wingR or nil,
+        wingLOffset = extra and extra.wingLOffset or nil,
+        wingROffset = extra and extra.wingROffset or nil,
+    }
+end
+
+local function spawnSparkle(base, col, scale)
+    local model = new("Model", { Name = "BenchSparkle" }, fxFolder)
+    local core = fxPart(
+        model,
+        Vector3.new(0.2, 0.2, 0.2) * scale,
+        CFrame.new(base),
+        col,
+        0.05,
+        Enum.Material.Neon,
+        Enum.PartType.Ball
+    )
+    model.PrimaryPart = core
+
+    for i = 1, 4 do
+        local ang = (i - 1) / 4 * math.pi * 2
+        fxPart(
+            model,
+            Vector3.new(0.05, 0.42, 0.05) * scale,
+            CFrame.new(base) * CFrame.Angles(math.rad(35), ang, math.rad(28)),
+            col:Lerp(Color3.new(1, 1, 1), 0.25),
+            0.15,
+            Enum.Material.Neon,
+            Enum.PartType.Block
+        )
+    end
+
+    new("PointLight", {
+        Brightness = 1.4,
+        Range = 7,
+        Color = col,
+    }, core)
+
+    local emitter = new("ParticleEmitter", {
+        Color = ColorSequence.new(col),
+        Size = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.28 * scale),
+            NumberSequenceKeypoint.new(1, 0),
+        }),
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.2),
+            NumberSequenceKeypoint.new(1, 1),
+        }),
+        Lifetime = NumberRange.new(0.4, 0.8),
+        Speed = NumberRange.new(0.5, 1.8),
+        SpreadAngle = Vector2.new(180, 180),
+        Rate = 10,
+        LightEmission = 1,
+        Texture = "rbxasset://textures/particles/sparkles_main.dds",
+    }, core)
+
+    registerOrbit(model, base, 2.4 + math.random() * 0.6, 1, {
+        scale = scale,
+        emitter = emitter,
+    })
+end
+
+local function spawnLantern(base, col, scale)
+    local model = new("Model", { Name = "BenchLantern" }, fxFolder)
+    local frameColor = Color3.fromRGB(48, 30, 20)
+    local paperColor = col:Lerp(Color3.fromRGB(255, 245, 220), 0.55)
+
+    local root = fxPart(
+        model,
+        Vector3.new(0.2, 0.2, 0.2) * scale,
+        CFrame.new(base),
+        Color3.new(1, 1, 1),
+        1,
+        Enum.Material.SmoothPlastic,
+        Enum.PartType.Block
+    )
+    model.PrimaryPart = root
+
+    fxPart(
+        model,
+        Vector3.new(0.62, 0.52, 0.52) * scale,
+        CFrame.new(base) * CFrame.Angles(0, 0, math.rad(90)),
+        paperColor,
+        0.45,
+        Enum.Material.SmoothPlastic,
+        Enum.PartType.Cylinder
+    )
+
+    for i = 1, 4 do
+        local ang = (i - 1) / 4 * math.pi * 2
+        fxPart(
+            model,
+            Vector3.new(0.05, 0.64, 0.05) * scale,
+            CFrame.new(base + Vector3.new(
+                math.cos(ang) * 0.28 * scale,
+                0,
+                math.sin(ang) * 0.28 * scale
+            )),
+            frameColor,
+            0,
+            Enum.Material.Wood,
+            Enum.PartType.Block
+        )
+    end
+
+    fxPart(
+        model,
+        Vector3.new(0.07, 0.68, 0.68) * scale,
+        CFrame.new(base + Vector3.new(0, 0.32 * scale, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+        frameColor,
+        0,
+        Enum.Material.Wood,
+        Enum.PartType.Cylinder
+    )
+    fxPart(
+        model,
+        Vector3.new(0.07, 0.68, 0.68) * scale,
+        CFrame.new(base + Vector3.new(0, -0.32 * scale, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+        frameColor,
+        0,
+        Enum.Material.Wood,
+        Enum.PartType.Cylinder
+    )
+
+    fxPart(
+        model,
+        Vector3.new(0.07, 0.8, 0.8) * scale,
+        CFrame.new(base + Vector3.new(0, 0.37 * scale, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+        frameColor,
+        0,
+        Enum.Material.Wood,
+        Enum.PartType.Cylinder
+    )
+    fxPart(
+        model,
+        Vector3.new(0.07, 0.62, 0.62) * scale,
+        CFrame.new(base + Vector3.new(0, 0.43 * scale, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+        frameColor,
+        0,
+        Enum.Material.Wood,
+        Enum.PartType.Cylinder
+    )
+    fxPart(
+        model,
+        Vector3.new(0.07, 0.4, 0.4) * scale,
+        CFrame.new(base + Vector3.new(0, 0.49 * scale, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+        frameColor,
+        0,
+        Enum.Material.Wood,
+        Enum.PartType.Cylinder
+    )
+    fxPart(
+        model,
+        Vector3.new(0.1, 0.1, 0.1) * scale,
+        CFrame.new(base + Vector3.new(0, 0.55 * scale, 0)),
+        frameColor,
+        0,
+        Enum.Material.Wood,
+        Enum.PartType.Ball
+    )
+
+    fxPart(
+        model,
+        Vector3.new(0.04, 0.3, 0.04) * scale,
+        CFrame.new(base + Vector3.new(-0.19 * scale, 0.66 * scale, 0)),
+        frameColor,
+        0,
+        Enum.Material.Wood,
+        Enum.PartType.Block
+    )
+    fxPart(
+        model,
+        Vector3.new(0.04, 0.3, 0.04) * scale,
+        CFrame.new(base + Vector3.new(0.19 * scale, 0.66 * scale, 0)),
+        frameColor,
+        0,
+        Enum.Material.Wood,
+        Enum.PartType.Block
+    )
+    fxPart(
+        model,
+        Vector3.new(0.42, 0.04, 0.04) * scale,
+        CFrame.new(base + Vector3.new(0, 0.81 * scale, 0)),
+        frameColor,
+        0,
+        Enum.Material.Wood,
+        Enum.PartType.Block
+    )
+
+    fxPart(
+        model,
+        Vector3.new(0.03, 0.16, 0.03) * scale,
+        CFrame.new(base + Vector3.new(0, -0.4 * scale, 0)),
+        Color3.fromRGB(150, 30, 30),
+        0,
+        Enum.Material.SmoothPlastic,
+        Enum.PartType.Block
+    )
+    fxPart(
+        model,
+        Vector3.new(0.08, 0.08, 0.08) * scale,
+        CFrame.new(base + Vector3.new(0, -0.5 * scale, 0)),
+        Color3.fromRGB(190, 40, 40),
+        0,
+        Enum.Material.SmoothPlastic,
+        Enum.PartType.Ball
+    )
+
+    local flame = fxPart(
+        model,
+        Vector3.new(0.3, 0.3, 0.3) * scale,
+        CFrame.new(base),
+        col,
+        0.05,
+        Enum.Material.Neon,
+        Enum.PartType.Ball
+    )
+    new("PointLight", {
+        Brightness = 2.2,
+        Range = 8,
+        Color = col,
+    }, flame)
+
+    local emitter = new("ParticleEmitter", {
+        Color = ColorSequence.new(col, col:Lerp(Color3.new(1, 1, 1), 0.4)),
+        Size = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.18 * scale),
+            NumberSequenceKeypoint.new(1, 0),
+        }),
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.2),
+            NumberSequenceKeypoint.new(1, 1),
+        }),
+        Lifetime = NumberRange.new(0.4, 0.9),
+        Speed = NumberRange.new(0.8, 2),
+        SpreadAngle = Vector2.new(25, 25),
+        Acceleration = Vector3.new(0, 3, 0),
+        Rate = 8,
+        LightEmission = 1,
+        Texture = "rbxasset://textures/particles/fire_main.dds",
+    }, flame)
+
+    registerOrbit(model, base, 5 + math.random(), 2, {
+        scale = scale,
+        emitter = emitter,
+    })
+end
+
+local function spawnFirefly(base, col, scale)
+    local model = new("Model", { Name = "BenchFirefly" }, fxFolder)
+    local dark = Color3.fromRGB(26, 24, 30)
+    local baseCF = CFrame.new(base)
+
+    local abdomen = fxPart(
+        model,
+        Vector3.new(0.16, 0.16, 0.16) * scale,
+        baseCF,
+        col,
+        0.05,
+        Enum.Material.Neon,
+        Enum.PartType.Ball
+    )
+    model.PrimaryPart = abdomen
+
+    fxPart(
+        model,
+        Vector3.new(0.12, 0.12, 0.14) * scale,
+        baseCF * CFrame.new(0, 0, -0.1 * scale),
+        dark,
+        0,
+        Enum.Material.SmoothPlastic,
+        Enum.PartType.Ball
+    )
+    fxPart(
+        model,
+        Vector3.new(0.09, 0.09, 0.09) * scale,
+        baseCF * CFrame.new(0, 0.01 * scale, -0.18 * scale),
+        dark,
+        0,
+        Enum.Material.SmoothPlastic,
+        Enum.PartType.Ball
+    )
+
+    local wingLOffset = CFrame.new(-0.07 * scale, 0.06 * scale, 0.01 * scale)
+        * CFrame.Angles(0, math.rad(18), math.rad(38))
+    local wingROffset = CFrame.new(0.07 * scale, 0.06 * scale, 0.01 * scale)
+        * CFrame.Angles(0, math.rad(-18), math.rad(-38))
+
+    local wingL = fxPart(
+        model,
+        Vector3.new(0.02, 0.1, 0.2) * scale,
+        baseCF * wingLOffset,
+        Color3.fromRGB(220, 255, 240),
+        0.35,
+        Enum.Material.SmoothPlastic,
+        Enum.PartType.Block
+    )
+    local wingR = fxPart(
+        model,
+        Vector3.new(0.02, 0.1, 0.2) * scale,
+        baseCF * wingROffset,
+        Color3.fromRGB(220, 255, 240),
+        0.35,
+        Enum.Material.SmoothPlastic,
+        Enum.PartType.Block
+    )
+
+    fxPart(
+        model,
+        Vector3.new(0.012, 0.12, 0.012) * scale,
+        baseCF * CFrame.new(-0.03 * scale, 0.07 * scale, -0.22 * scale)
+            * CFrame.Angles(math.rad(-25), 0, math.rad(20)),
+        dark,
+        0,
+        Enum.Material.SmoothPlastic,
+        Enum.PartType.Block
+    )
+    fxPart(
+        model,
+        Vector3.new(0.012, 0.12, 0.012) * scale,
+        baseCF * CFrame.new(0.03 * scale, 0.07 * scale, -0.22 * scale)
+            * CFrame.Angles(math.rad(-25), 0, math.rad(-20)),
+        dark,
+        0,
+        Enum.Material.SmoothPlastic,
+        Enum.PartType.Block
+    )
+
+    local a0 = new("Attachment", {
+        Position = Vector3.new(0, 0, 0.09 * scale),
+    }, abdomen)
+    local a1 = new("Attachment", {
+        Position = Vector3.new(0, 0, -0.07 * scale),
+    }, abdomen)
+    local trail = new("Trail", {
+        Attachment0 = a0,
+        Attachment1 = a1,
+        Lifetime = 0.35,
+        MinLength = 0.05,
+        LightEmission = 1,
+        LightInfluence = 0,
+        FaceCamera = true,
+        Texture = "rbxasset://textures/particles/sparkles_main.dds",
+        TextureMode = Enum.TextureMode.Stretch,
+        WidthScale = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.18 * scale),
+            NumberSequenceKeypoint.new(1, 0.01),
+        }),
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.1),
+            NumberSequenceKeypoint.new(1, 1),
+        }),
+        Color = ColorSequence.new(col),
+    }, abdomen)
+
+    new("PointLight", {
+        Brightness = 1.6,
+        Range = 5,
+        Color = col,
+    }, abdomen)
+
+    local emitter = new("ParticleEmitter", {
+        Color = ColorSequence.new(col),
+        Size = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.12 * scale),
+            NumberSequenceKeypoint.new(1, 0),
+        }),
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.2),
+            NumberSequenceKeypoint.new(1, 1),
+        }),
+        Lifetime = NumberRange.new(0.3, 0.7),
+        Speed = NumberRange.new(0.2, 1),
+        SpreadAngle = Vector2.new(180, 180),
+        Rate = 8,
+        LightEmission = 1,
+        Texture = "rbxasset://textures/particles/sparkles_main.dds",
+    }, abdomen)
+
+    registerOrbit(model, base, 3.6 + math.random(), 3, {
+        scale = scale,
+        trail = trail,
+        emitter = emitter,
+        wingL = wingL,
+        wingR = wingR,
+        wingLOffset = wingLOffset,
+        wingROffset = wingROffset,
+    })
+end
+
+local function updateOrbit(dt)
+    dt = dt or 0.016
+    local now = tick()
+    for i = #orbitEntities, 1, -1 do
+        local entity = orbitEntities[i]
+        local age = now - entity.t0
+        local a = age / entity.life
+        if not entity.model or not entity.model.Parent or a >= 1 then
+            if entity.model then
+                entity.model:Destroy()
+            end
+            table.remove(orbitEntities, i)
+        else
+            local fade = math.clamp(a * a, 0, 1)
+
+            if entity.kind == 2 then
+                local pos = entity.base + Vector3.new(
+                    math.sin(age * 0.6 + entity.phase) * 0.35,
+                    age * 1.1 + math.sin(age * 1.8 + entity.phase) * 0.25,
+                    math.cos(age * 0.5 + entity.phase) * 0.35
+                )
+                entity.model:PivotTo(
+                    CFrame.new(pos)
+                        * CFrame.Angles(
+                            0,
+                            age * 0.7 + entity.phase,
+                            math.sin(age * 1.3 + entity.phase) * 0.08
+                        )
+                )
+            elseif entity.kind == 3 then
+                local pos = entity.base + Vector3.new(
+                    math.sin(age * 1.7 + entity.phase) * 1.3,
+                    math.sin(age * 2.3 + entity.phase * 1.7) * 0.55 + age * 0.35,
+                    math.cos(age * 1.3 + entity.phase) * 1.3
+                )
+                local nextPos = entity.base + Vector3.new(
+                    math.sin((age + 0.08) * 1.7 + entity.phase) * 1.3,
+                    math.sin((age + 0.08) * 2.3 + entity.phase * 1.7) * 0.55
+                        + (age + 0.08) * 0.35,
+                    math.cos((age + 0.08) * 1.3 + entity.phase) * 1.3
+                )
+                local dir = nextPos - pos
+                if dir.Magnitude < 0.001 then
+                    dir = Vector3.new(0, 0, 1)
+                end
+                local cf = CFrame.lookAt(pos, pos + dir.Unit)
+                entity.model:PivotTo(cf)
+                if entity.wingL then
+                    local flap = math.sin(age * 34 + entity.phase) * 0.55
+                    entity.wingL.CFrame = cf * entity.wingLOffset
+                        * CFrame.Angles(0, 0, flap)
+                    entity.wingR.CFrame = cf * entity.wingROffset
+                        * CFrame.Angles(0, 0, -flap)
+                end
+            else
+                local pos = entity.base + Vector3.new(
+                    math.sin(age * 0.9 + entity.phase) * 0.4,
+                    age * 1.6,
+                    math.cos(age * 0.8 + entity.phase) * 0.4
+                )
+                entity.model:PivotTo(
+                    CFrame.new(pos)
+                        * CFrame.Angles(age * 2.2, age * 3.1, age * 1.7)
+                )
+            end
+
+            for _, entry in ipairs(entity.parts) do
+                entry.part.Transparency = math.clamp(
+                    entry.base + (1 - entry.base) * fade,
+                    0,
+                    1
+                )
+            end
+            for _, entry in ipairs(entity.lights) do
+                entry.light.Brightness = entry.base * (1 - fade)
+            end
+            if entity.trail and a > 0.6 then
+                entity.trail.Enabled = false
+            end
+            if entity.emitter and a > 0.65 then
+                entity.emitter.Enabled = false
+            end
+        end
+    end
+
+    if not Config.orbit.enabled then
+        return
+    end
+
+    local kind = Config.orbit.kind
+    local cap = (kind == 2) and 12 or ((kind == 3) and 16 or 20)
+    if #orbitEntities >= cap then
+        return
+    end
+
+    orbitAcc = orbitAcc + dt
+    local baseInterval = (kind == 2) and 2.4 or ((kind == 3) and 1.5 or 1)
+    local interval = baseInterval / math.max(Config.orbit.count, 1)
+    if orbitAcc < interval then
+        return
+    end
+    orbitAcc = 0
+
     local char = LocalPlayer.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
     if not root then
         return
     end
 
-    local kind = Config.orbit.kind
     local radius = Config.orbit.radius
+    local scale = 0.7 + (Config.orbit.size or 1) * 0.3
     local angle = math.random() * math.pi * 2
-    local dist = radius * (0.5 + math.random() * 0.7)
-    local base = root.Position + Vector3.new(
-        math.cos(angle) * dist,
-        -1 + math.random() * 3,
-        math.sin(angle) * dist
-    )
-    local col = Config.orbit.rainbow
-        and Color3.fromHSV((tick() * 0.35 + math.random()) % 1, 0.85, 1)
-        or Config.orbit.color
-
-    local size, life, drift, transparency
-    if kind == 1 then
-        size = Vector3.new(0.22, 0.22, 0.22)
-        life = 1.3
-        drift = 2.2
-        transparency = 0.15
-    elseif kind == 2 then
-        size = Vector3.new(0.6, 0.9, 0.6)
-        life = 2.4
-        drift = 3
-        transparency = 0.05
-    else
-        size = Vector3.new(0.16, 0.16, 0.16)
-        life = 1.8
-        drift = 1.4
-        transparency = 0.2
-    end
-
-    local part = new("Part", {
-        Anchored = true,
-        CanCollide = false,
-        CanQuery = false,
-        CanTouch = false,
-        Material = Enum.Material.Neon,
-        Shape = Enum.PartType.Ball,
-        Size = size,
-        Color = col,
-        CFrame = CFrame.new(base),
-        Transparency = transparency,
-    }, fxFolder)
-    orbitParts[#orbitParts + 1] = part
-
+    local dist = radius * (0.45 + math.random() * 0.75)
+    local base
     if kind == 2 then
-        new("PointLight", {
-            Brightness = 2.2,
-            Range = 9,
-            Color = col,
-        }, part)
+        base = root.Position + Vector3.new(
+            math.cos(angle) * dist,
+            -2.4 + math.random() * 0.8,
+            math.sin(angle) * dist
+        )
+    elseif kind == 3 then
+        base = root.Position + Vector3.new(
+            math.cos(angle) * dist,
+            -0.5 + math.random() * 2.5,
+            math.sin(angle) * dist
+        )
+    else
+        base = root.Position + Vector3.new(
+            math.cos(angle) * dist,
+            -1 + math.random() * 3,
+            math.sin(angle) * dist
+        )
     end
 
-    if kind == 1 then
-        local emitter = new("ParticleEmitter", {
-            Color = ColorSequence.new(col),
-            Size = NumberSequence.new(0.35),
-            Transparency = NumberSequence.new({
-                NumberSequenceKeypoint.new(0, 0.3),
-                NumberSequenceKeypoint.new(1, 1),
-            }),
-            Lifetime = NumberRange.new(0.35, 0.7),
-            Speed = NumberRange.new(1, 3),
-            SpreadAngle = Vector2.new(180, 180),
-            Rate = 0,
-            LightEmission = 1,
-            Texture = "rbxasset://textures/particles/sparkles_main.dds",
-        }, part)
-        emitter:Emit(8)
+    local col = orbitColor()
+    if kind == 2 then
+        spawnLantern(base, col, scale)
+    elseif kind == 3 then
+        spawnFirefly(base, col, scale)
+    else
+        spawnSparkle(base, col, scale)
     end
-
-    TweenService:Create(
-        part,
-        TweenInfo.new(life, Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
-        {
-            CFrame = CFrame.new(base + Vector3.new(0, drift, 0)),
-            Transparency = 1,
-            Size = size * 0.35,
-        }
-    ):Play()
-
-    task.delay(life + 0.2, function()
-        part:Destroy()
-    end)
-end
-
-local function updateOrbit(dt)
-    if not Config.orbit.enabled then
-        for i = #orbitParts, 1, -1 do
-            if not orbitParts[i].Parent then
-                table.remove(orbitParts, i)
-            end
-        end
-        return
-    end
-    orbitAcc = orbitAcc + dt
-    local interval = 0.9 / math.max(Config.orbit.count, 1)
-    if orbitAcc < interval then
-        return
-    end
-    orbitAcc = 0
-    spawnOrbitFx()
 end
 
 --// fov circle
@@ -2691,7 +3667,7 @@ track(RunService.RenderStepped:Connect(function(dt)
 
     updateEsp()
     updateTargetFx()
-    updateAurora()
+    updateAurora(dt)
     updateWalk(dt)
     updateOrbit(dt)
 
