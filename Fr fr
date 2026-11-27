@@ -4,7 +4,7 @@
     combat: camera / silent / hybrid aim
     render: ESP 2D+3D, target FX, sky styles, jump / walk / orbit effects
     cosmetic: 3D preview + energy china hat / wings / crown
-    youtube: public video search + music hub with LRC lyrics
+    music: local mp3 library + draggable music hub
     gui: fonts, colors, border, image background, settings backup
     exec: paste into executor, run.
 ]]
@@ -109,12 +109,33 @@ local Config = {
             scale = 1,
             spin = 0,
         },
+        halo = {
+            enabled = false,
+            color = Color3.fromRGB(220, 220, 240),
+            x = 0, y = 0, z = 0,
+            scale = 1,
+            spin = 30,
+        },
+        wizard = {
+            enabled = false,
+            color = Color3.fromRGB(175, 95, 255),
+            x = 0, y = 0, z = 0,
+            scale = 1,
+            spin = 0,
+        },
         wings = {
             enabled = false,
             color = Color3.fromRGB(190, 90, 255),
             x = 0, y = 0, z = 0,
             scale = 1,
             spin = 45,
+        },
+        dragonwings = {
+            enabled = false,
+            color = Color3.fromRGB(255, 45, 70),
+            x = 0, y = 0, z = 0,
+            scale = 1,
+            spin = 60,
         },
         crown = {
             enabled = false,
@@ -123,6 +144,13 @@ local Config = {
             scale = 1,
             spin = 20,
         },
+        dragon = {
+            enabled = false,
+            color = Color3.fromRGB(180, 80, 255),
+            x = 0, y = 0, z = 0,
+            scale = 1,
+            spin = 70,
+        },
     },
     yt = {
         hub = false,
@@ -130,14 +158,7 @@ local Config = {
         hubY = 0.68,
         volume = 60,
         index = 1,
-        tracks = {
-            {
-                id = "",
-                title = "Không Buông",
-                artist = "Hngle",
-                lyrics = "[00:00] Anh có để chịu vậy\n[00:08] rồi cũng ra như này",
-            },
-        },
+        tracks = {},
     },
     gui = {
         font = 1,
@@ -416,7 +437,9 @@ local function applySettingsData(data)
         return false
     end
     if decoded.cosmetic then
-        for _, key in ipairs({ "hat", "wings", "crown" }) do
+        for _, key in ipairs({
+            "hat", "halo", "wizard", "wings", "dragonwings", "crown", "dragon",
+        }) do
             if decoded.cosmetic[key] ~= nil
                 and type(decoded.cosmetic[key]) ~= "table" then
                 return false
@@ -462,7 +485,7 @@ local function applySettingsData(data)
     Config.walk.color = keepColor(Config.walk.color, Color3.fromRGB(255, 120, 60))
     Config.orbit.color = keepColor(Config.orbit.color, Color3.fromRGB(255, 220, 80))
 
-    Config.cosmetic.selected = math.clamp(tonumber(Config.cosmetic.selected) or 1, 1, 3)
+    Config.cosmetic.selected = math.clamp(tonumber(Config.cosmetic.selected) or 1, 1, 6)
     Config.aim.mode = math.clamp(tonumber(Config.aim.mode) or 1, 1, #AIM_MODES)
     Config.aim.part = math.clamp(tonumber(Config.aim.part) or 1, 1, #AIM_PARTS)
     Config.aim.fov = math.clamp(tonumber(Config.aim.fov) or 220, 80, 600)
@@ -476,7 +499,7 @@ local function applySettingsData(data)
     Config.walk.power = math.clamp(tonumber(Config.walk.power) or 1, 1, 3)
     Config.orbit.kind = math.clamp(tonumber(Config.orbit.kind) or 1, 1, #ORBIT_KINDS)
     Config.orbit.count = math.clamp(tonumber(Config.orbit.count) or 8, 1, 10)
-    Config.orbit.radius = math.clamp(tonumber(Config.orbit.radius) or 3.5, 2, 10)
+    Config.orbit.radius = math.clamp(tonumber(Config.orbit.radius) or 3.5, 2, 80)
     Config.orbit.size = math.clamp(tonumber(Config.orbit.size) or 1, 1, 3)
     Config.yt.volume = math.clamp(tonumber(Config.yt.volume) or 60, 0, 100)
     Config.yt.hubX = math.clamp(tonumber(Config.yt.hubX) or 0.62, 0, 1)
@@ -487,13 +510,15 @@ local function applySettingsData(data)
         Config.yt.index = math.clamp(tonumber(Config.yt.index) or 1, 1, #Config.yt.tracks)
     end
 
-    for _, key in ipairs({ "hat", "wings", "crown" }) do
+    for _, key in ipairs({
+        "hat", "halo", "wizard", "wings", "dragonwings", "crown", "dragon",
+    }) do
         local c = Config.cosmetic[key]
         if type(c) == "table" then
             c.x = tonumber(c.x) or 0
             c.y = tonumber(c.y) or 0
             c.z = tonumber(c.z) or 0
-            c.scale = math.clamp(tonumber(c.scale) or 1, 1, 3)
+            c.scale = math.clamp(tonumber(c.scale) or 1, 0.5, 8)
             c.spin = math.clamp(tonumber(c.spin) or 0, 0, 360)
             c.enabled = c.enabled == true
             if typeof(c.color) ~= "Color3" then
@@ -511,6 +536,8 @@ local function applySettingsData(data)
         if type(item) == "table" then
             cleanTracks[#cleanTracks + 1] = {
                 id = tostring(item.id or ""),
+                path = tostring(item.path or ""),
+                kind = tostring(item.kind or ""),
                 title = tostring(item.title or "Untitled"),
                 artist = tostring(item.artist or ""),
                 lyrics = tostring(item.lyrics or ""),
@@ -546,8 +573,12 @@ local function applySettingsData(data)
         hubSound.Volume = Config.yt.volume / 100
         local song = Config.yt.tracks[Config.yt.index]
         local id = ""
-        if song and ui.audioId then
-            id = ui.audioId(song.id)
+        if song then
+            if ui.trackAsset then
+                id = ui.trackAsset(song)
+            elseif ui.audioId then
+                id = ui.audioId(song.id)
+            end
         end
         if hubSound.SoundId ~= id then
             pcall(function()
@@ -1455,7 +1486,7 @@ local tabDefs = {
     { key = "combat",   label = "COMBAT" },
     { key = "render",   label = "RENDER" },
     { key = "cosmetic", label = "COSMETIC" },
-    { key = "youtube",  label = "YOUTUBE" },
+    { key = "music",    label = "MUSIC" },
     { key = "gui",      label = "GUI" },
 }
 
@@ -1536,7 +1567,7 @@ note(pages.info,
     .. "COMBAT — aim camera / silent / hybrid, FOV, smooth, prediction.\n"
     .. "RENDER — ESP 2D + 3D, target FX, sky styles, jump / walk / orbit fx.\n"
     .. "COSMETIC — mô hình 3D, china hat / wings / crown năng lượng.\n"
-    .. "YOUTUBE — tìm video + music hub lyric (không nhúng web thật).\n"
+    .. "MUSIC — thư viện MP3 local + music hub, không cần mạng.\n"
     .. "GUI — font (có Minecraft), màu nâng cao, viền, ảnh nền, backup settings.", 120)
 
 note(pages.info,
@@ -1672,7 +1703,7 @@ end)
 sliderRow(orbitGroup, "Orbit rate", 1, 10, Config.orbit.count, "", function(v)
     Config.orbit.count = v
 end)
-sliderRow(orbitGroup, "Orbit radius", 2, 10, math.floor(Config.orbit.radius), "", function(v)
+sliderRow(orbitGroup, "Orbit radius", 2, 80, math.floor(Config.orbit.radius), "", function(v)
     Config.orbit.radius = v
 end)
 sliderRow(orbitGroup, "Orbit size", 1, 3, Config.orbit.size, "", function(v)
@@ -1687,13 +1718,20 @@ colorPicker(orbitGroup, "Orbit color", Config.orbit, "color")
 --// cosmetic + music ui
 do
 local ytPlay, ytTogglePlay, ytNext, ytPrev, ytSeek
-local ytDoSearch, ytAddTrack, ytDeleteTrack
+local ytAddTrack, ytDeleteTrack
+local refreshMusicLibrary
+local trackAsset
+local MUSIC_FOLDER = "BenchUI_Music"
 
 --// cosmetic page
 local COSMETIC_DEFS = {
-    { key = "hat", label = "China Hat", desc = "Energy cone" },
-    { key = "wings", label = "Energy Wings", desc = "Neon blades" },
+    { key = "hat", label = "China Hat", desc = "Wide flat cone" },
+    { key = "halo", label = "Energy Halo", desc = "White silver glow" },
+    { key = "wizard", label = "Wizard Hat", desc = "Tall purple star" },
+    { key = "wings", label = "Energy Wings", desc = "Big neon blades" },
+    { key = "dragonwings", label = "Dragon Wings", desc = "Red dragon fan" },
     { key = "crown", label = "Energy Crown", desc = "Five spikes" },
+    { key = "dragon", label = "Dragon Pet", desc = "Floating neon pet" },
 }
 local cosCards = {}
 local cosControls
@@ -1738,11 +1776,17 @@ new("TextLabel", {
     ZIndex = 2,
 }, cosPreview)
 
-local cosList = new("Frame", {
+local cosList = new("ScrollingFrame", {
     Position = UDim2.new(0.48, 4, 0, 8),
     Size = UDim2.new(0.52, -12, 1, -16),
     BackgroundTransparency = 1,
     BorderSizePixel = 0,
+    CanvasSize = UDim2.new(0, 0, 0, 0),
+    AutomaticCanvasSize = Enum.AutomaticSize.Y,
+    ScrollingDirection = Enum.ScrollingDirection.Y,
+    ScrollBarThickness = 2,
+    ScrollBarImageColor3 = Theme.muted,
+    ScrollBarImageTransparency = 0.4,
 }, cosTop)
 new("UIListLayout", {
     Padding = UDim.new(0, 6),
@@ -1770,7 +1814,7 @@ end
 for i, def in ipairs(COSMETIC_DEFS) do
     local cfg = Config.cosmetic[def.key]
     local btn = new("TextButton", {
-        Size = UDim2.new(1, 0, 0, 64),
+        Size = UDim2.new(1, 0, 0, 52),
         BackgroundColor3 = Theme.bg,
         BackgroundTransparency = 0.35,
         AutoButtonColor = false,
@@ -1780,35 +1824,35 @@ for i, def in ipairs(COSMETIC_DEFS) do
     }, cosList)
     corner(btn, 10)
     local dot = new("Frame", {
-        Position = UDim2.fromOffset(12, 12),
+        Position = UDim2.fromOffset(10, 10),
         Size = UDim2.fromOffset(10, 10),
         BackgroundColor3 = cfg.color,
         BorderSizePixel = 0,
     }, btn)
     corner(dot, 5)
     local name = new("TextLabel", {
-        Position = UDim2.fromOffset(30, 6),
-        Size = UDim2.new(1, -70, 0, 20),
+        Position = UDim2.fromOffset(26, 3),
+        Size = UDim2.new(1, -62, 0, 18),
         BackgroundTransparency = 1,
         Font = Enum.Font.GothamBold,
-        TextSize = 12,
+        TextSize = 11,
         TextColor3 = Theme.text,
         TextXAlignment = Enum.TextXAlignment.Left,
         Text = def.label,
     }, btn)
     local desc = new("TextLabel", {
-        Position = UDim2.fromOffset(30, 24),
-        Size = UDim2.new(1, -40, 0, 16),
+        Position = UDim2.fromOffset(26, 21),
+        Size = UDim2.new(1, -34, 0, 14),
         BackgroundTransparency = 1,
         Font = Enum.Font.GothamMedium,
-        TextSize = 9,
+        TextSize = 8,
         TextColor3 = Theme.muted,
         TextXAlignment = Enum.TextXAlignment.Left,
         Text = def.desc,
     }, btn)
     local status = new("TextLabel", {
-        Position = UDim2.new(1, -44, 0, 8),
-        Size = UDim2.fromOffset(34, 16),
+        Position = UDim2.new(1, -40, 0, 5),
+        Size = UDim2.fromOffset(32, 16),
         BackgroundTransparency = 1,
         Font = Enum.Font.GothamBold,
         TextSize = 9,
@@ -1863,11 +1907,11 @@ renderCosControls = function()
     sliderRow(cosControls, "Pos Z", -3, 3, cfg.z, " stud", function(v)
         cfg.z = v
     end)
-    sliderRow(cosControls, "Scale", 1, 3, cfg.scale, "x", function(v)
+    sliderRow(cosControls, "Size", 1, 8, cfg.scale, "x", function(v)
         cfg.scale = v
         cosmeticRefresh()
     end)
-    if def.key == "wings" then
+    if def.key == "wings" or def.key == "dragonwings" then
         sliderRow(cosControls, "Flap speed", 0, 360, cfg.spin, " deg/s", function(v)
             cfg.spin = v
         end)
@@ -1973,7 +2017,7 @@ local hubArtist = new("TextLabel", {
     TextColor3 = Theme.muted,
     TextXAlignment = Enum.TextXAlignment.Left,
     TextTruncate = Enum.TextTruncate.AtEnd,
-    Text = "Thêm track ở tab YOUTUBE",
+    Text = "Thêm file MP3 ở tab MUSIC",
 }, musicHub)
 hubArtist:SetAttribute("noFontTheme", true)
 
@@ -2207,145 +2251,68 @@ local function toast(text)
     end)
 end
 
-local function openUrl(url)
-    local fn = execEnv.openbrowser or execEnv.openBrowser
-        or execEnv.open_url or execEnv.openUrl
-    if type(fn) == "function" then
-        local ok = pcall(fn, url)
-        if ok then
-            toast("Đã mở trình duyệt.")
-            return
-        end
-    end
-    local ok = pcall(function()
-        game:GetService("GuiService"):OpenBrowserWindow(url)
-    end)
-    if ok then
-        toast("Đã mở trình duyệt.")
-        return
-    end
-    if copyToClipboard(url) then
-        toast("Đã copy link — dán vào trình duyệt.")
-    else
-        toast("Link: " .. url)
-    end
-end
+--// music page
+section(pages.music, "local music")
+note(pages.music,
+    "Script tạo folder BenchUI_Music trong thư mục executor. Thả file .mp3 / .ogg / .wav "
+    .. "vào đó, bấm REFRESH LOCAL FILES để nạp vào playlist. Executor cần hỗ trợ "
+    .. "getcustomasset để phát file local; nếu không, dùng audio ID Roblox bên dưới.", 64)
 
---// youtube page
-section(pages.youtube, "youtube")
-note(pages.youtube,
-    "Tìm video công khai, không cần đăng nhập. Roblox không nhúng được web thật — "
-    .. "bấm kết quả để mở hoặc copy link sang trình duyệt.", 44)
-
-local ytSearchRow = new("Frame", {
-    Size = UDim2.new(1, 0, 0, 36),
-    BackgroundTransparency = 1,
-    BorderSizePixel = 0,
-}, pages.youtube)
-addOrder(pages.youtube, ytSearchRow)
-
-local ytQuery = new("TextBox", {
-    Size = UDim2.new(1, -78, 0, 32),
-    Position = UDim2.fromOffset(0, 2),
-    BackgroundColor3 = Theme.bg2,
-    Font = Enum.Font.SourceSans,
-    TextSize = 12,
-    TextColor3 = Theme.text,
-    PlaceholderText = "Tìm video YouTube...",
-    PlaceholderColor3 = Theme.muted,
-    Text = "",
-    ClearTextOnFocus = false,
-    BorderSizePixel = 0,
-}, ytSearchRow)
-corner(ytQuery, 8)
-tint(ytQuery, "BackgroundColor3", "bg2")
-tint(ytQuery, "TextColor3", "text")
-ytQuery:SetAttribute("noFontTheme", true)
-
-local ytSearchBtn = new("TextButton", {
-    Size = UDim2.fromOffset(70, 32),
-    Position = UDim2.new(1, -70, 0, 2),
-    BackgroundColor3 = Theme.accent,
-    AutoButtonColor = false,
-    Font = Enum.Font.GothamBold,
-    TextSize = 10,
-    TextColor3 = Color3.new(1, 1, 1),
-    Text = "SEARCH",
-    BorderSizePixel = 0,
-}, ytSearchRow)
-corner(ytSearchBtn, 8)
-tint(ytSearchBtn, "BackgroundColor3", "accent")
-track(ytSearchBtn.Activated:Connect(function()
-    if ytDoSearch then
-        ytDoSearch()
-    end
-end))
-track(ytQuery.FocusLost:Connect(function(enterPressed)
-    if enterPressed and ytDoSearch then
-        ytDoSearch()
-    end
-end))
-
-local ytStatus = new("TextLabel", {
+local ytFolderLabel = new("TextLabel", {
     Size = UDim2.new(1, 0, 0, 16),
     BackgroundTransparency = 1,
     Font = Enum.Font.SourceSans,
     TextSize = 10,
     TextColor3 = Theme.muted,
     TextXAlignment = Enum.TextXAlignment.Left,
-    Text = "Nhập từ khóa rồi bấm SEARCH.",
-}, pages.youtube)
-addOrder(pages.youtube, ytStatus)
-ytStatus:SetAttribute("noFontTheme", true)
+    Text = "Folder: " .. MUSIC_FOLDER,
+}, pages.music)
+addOrder(pages.music, ytFolderLabel)
+ytFolderLabel:SetAttribute("noFontTheme", true)
 
-local ytResults = new("ScrollingFrame", {
-    Size = UDim2.new(1, 0, 0, 168),
-    BackgroundColor3 = Theme.bg2,
-    BackgroundTransparency = 0.35,
-    BorderSizePixel = 0,
-    CanvasSize = UDim2.new(0, 0, 0, 0),
-    AutomaticCanvasSize = Enum.AutomaticSize.Y,
-    ScrollingDirection = Enum.ScrollingDirection.Y,
-    ScrollBarThickness = 2,
-    ScrollBarImageColor3 = Theme.muted,
-    ScrollBarImageTransparency = 0.4,
-}, pages.youtube)
-corner(ytResults, 10)
-tint(ytResults, "BackgroundColor3", "bg2")
-addOrder(pages.youtube, ytResults)
-new("UIListLayout", {
-    Padding = UDim.new(0, 4),
-    SortOrder = Enum.SortOrder.LayoutOrder,
-}, ytResults)
-new("TextLabel", {
-    Size = UDim2.new(1, 0, 0, 30),
+local ytLibStatus = new("TextLabel", {
+    Size = UDim2.new(1, 0, 0, 16),
     BackgroundTransparency = 1,
     Font = Enum.Font.SourceSans,
     TextSize = 10,
     TextColor3 = Theme.muted,
-    Text = "Chưa có kết quả.",
-}, ytResults)
+    TextXAlignment = Enum.TextXAlignment.Left,
+    Text = "Chưa quét folder.",
+}, pages.music)
+addOrder(pages.music, ytLibStatus)
+ytLibStatus:SetAttribute("noFontTheme", true)
 
-buttonRow(pages.youtube, "OPEN YOUTUBE", Theme.bg2, function()
-    openUrl("https://www.youtube.com")
+buttonRow(pages.music, "REFRESH LOCAL FILES", Theme.accent, function()
+    if refreshMusicLibrary then
+        refreshMusicLibrary()
+    end
 end)
 
-buttonRow(pages.youtube, "OPEN SEARCH IN BROWSER", Theme.bg2, function()
-    local q = ytQuery.Text:gsub("^%s+", ""):gsub("%s+$", "")
-    if q == "" then
-        openUrl("https://www.youtube.com")
-        return
+buttonRow(pages.music, "OPEN MUSIC FOLDER", Theme.bg2, function()
+    local fn = execEnv.openfolder or execEnv.openFolder
+    if type(fn) == "function" then
+        local ok = pcall(fn, MUSIC_FOLDER)
+        if ok then
+            toast("Đã mở folder " .. MUSIC_FOLDER)
+            return
+        end
     end
-    local ok, encoded = pcall(function()
-        return HttpService:UrlEncode(q)
-    end)
-    if not ok or type(encoded) ~= "string" then
-        encoded = q:gsub(" ", "+")
+    if copyToClipboard(MUSIC_FOLDER) then
+        toast("Đã copy đường dẫn folder — dán vào file manager.")
+    else
+        toast("Folder: " .. MUSIC_FOLDER)
     end
-    openUrl("https://www.youtube.com/results?search_query=" .. encoded)
 end)
 
-local ytHubGroup = collapsible(pages.youtube, "music hub", true)
+buttonRow(pages.music, "COPY FOLDER PATH", Theme.bg2, function()
+    if copyToClipboard(MUSIC_FOLDER) then
+        toast("Đã copy: " .. MUSIC_FOLDER)
+    else
+        toast("Folder: " .. MUSIC_FOLDER)
+    end
+end)
+
+local ytHubGroup = collapsible(pages.music, "music hub", true)
 toggleRow(ytHubGroup, "Music hub", Config.yt.hub, function(v)
     Config.yt.hub = v
     if musicHub then
@@ -2369,9 +2336,9 @@ buttonRow(ytHubGroup, "RESET HUB POSITION", Theme.bg2, function()
     end
 end)
 note(ytHubGroup,
-    "Kéo HUB nhạc để đổi vị trí. Lyric hiện theo timestamp LRC khi thêm track.", 30)
+    "Kéo HUB nhạc để đổi vị trí. File MP3 local phát trực tiếp; lyric LRC chỉ dùng cho track audio ID.", 30)
 
-local ytListGroup = collapsible(pages.youtube, "playlist", true)
+local ytListGroup = collapsible(pages.music, "playlist", true)
 local ytList = new("Frame", {
     Size = UDim2.new(1, 0, 0, 0),
     AutomaticSize = Enum.AutomaticSize.Y,
@@ -2397,7 +2364,7 @@ ytRefreshPlaylist = function()
             Font = Enum.Font.SourceSans,
             TextSize = 10,
             TextColor3 = Theme.muted,
-            Text = "Chưa có track — thêm bên dưới.",
+            Text = "Chưa có track — bấm REFRESH LOCAL FILES hoặc thêm bên dưới.",
         }, ytList)
         empty:SetAttribute("noFontTheme", true)
         return
@@ -2441,7 +2408,9 @@ ytRefreshPlaylist = function()
             TextXAlignment = Enum.TextXAlignment.Left,
             TextTruncate = Enum.TextTruncate.AtEnd,
             Text = (song.artist or "?")
-                .. ((song.id and song.id ~= "") and " · audio" or " · chưa có audio"),
+                .. ((song.path or "") ~= ""
+                    and " · local file"
+                    or ((song.id and song.id ~= "") and " · audio" or " · chưa có audio")),
         }, play)
         meta:SetAttribute("noFontTheme", true)
         track(play.Activated:Connect(function()
@@ -2468,7 +2437,7 @@ ytRefreshPlaylist = function()
 end
 ytRefreshPlaylist()
 
-local ytAddGroup = collapsible(pages.youtube, "add track", false)
+local ytAddGroup = collapsible(pages.music, "add audio id", false)
 local function ytField(placeholder, height)
     local box = new("TextBox", {
         Size = UDim2.new(1, 0, 0, height),
@@ -2511,8 +2480,8 @@ buttonRow(ytAddGroup, "ADD TO QUEUE", Theme.bg2, function()
     end
 end)
 note(ytAddGroup,
-    "Roblox không stream YouTube trực tiếp. Dán audio ID Roblox (bài bạn có quyền dùng) "
-    .. "để HUB phát; lyric dán dạng LRC hoặc mỗi dòng một câu.", 44)
+    "Cách 2: dán audio ID Roblox (bài bạn có quyền dùng). File .mp3/.ogg/.wav "
+    .. "đặt trong BenchUI_Music sẽ được nạp tự động.", 44)
 
 
 
@@ -2581,7 +2550,7 @@ ytUpdateHub = function()
     end
     local song = currentSong()
     hubTitle.Text = (song and song.title ~= "" and song.title) or "Chưa có nhạc"
-    hubArtist.Text = (song and song.artist ~= "" and song.artist) or "Thêm track ở tab YOUTUBE"
+    hubArtist.Text = (song and song.artist ~= "" and song.artist) or "Thêm file MP3 ở tab MUSIC"
 
     local length = 0
     local pos = 0
@@ -2622,8 +2591,13 @@ ytUpdateHub = function()
         hubLyric1.Text = cur.text
         hubLyric2.Text = nxt and nxt.text or ""
     elseif song then
-        hubLyric1.Text = "Chưa có lyric — dán LRC ở tab YOUTUBE."
-        hubLyric2.Text = ""
+        if (song.path or "") ~= "" then
+            hubLyric1.Text = "Local MP3 • " .. tostring(song.title or "")
+            hubLyric2.Text = "Không cần mạng"
+        else
+            hubLyric1.Text = "Chưa có lyric — dán LRC ở tab MUSIC."
+            hubLyric2.Text = ""
+        end
     else
         hubLyric1.Text = ""
         hubLyric2.Text = ""
@@ -2642,7 +2616,7 @@ ytPlay = function(i)
     i = math.clamp(tonumber(i) or 1, 1, n)
     Config.yt.index = i
     local song = Config.yt.tracks[i]
-    local id = normalizeAudioId(song.id)
+    local id = trackAsset and trackAsset(song) or normalizeAudioId(song.id)
     if hubSound then
         pcall(function()
             hubSound:Stop()
@@ -2662,7 +2636,11 @@ ytPlay = function(i)
     end)
     ytUpdateHub()
     if id == "" then
-        toast("Track chưa có audio ID — HUB chỉ hiện lyric.")
+        if (song.path or "") ~= "" then
+            toast("Không đọc được file MP3 — executor thiếu getcustomasset.")
+        else
+            toast("Track chưa có audio ID — HUB chỉ hiện lyric.")
+        end
     end
     saveSettings()
 end
@@ -2672,14 +2650,22 @@ ytTogglePlay = function()
         return
     end
     local song = currentSong()
-    if not song or normalizeAudioId(song.id) == "" then
-        toast("Chưa có audio ID Roblox cho track này.")
+    if not song then
+        toast("Playlist trống — thêm file hoặc audio ID trước.")
+        return
+    end
+    local id = trackAsset and trackAsset(song) or normalizeAudioId(song.id)
+    if id == "" then
+        if (song.path or "") ~= "" then
+            toast("Không đọc được file MP3 — executor thiếu getcustomasset.")
+        else
+            toast("Chưa có audio ID Roblox cho track này.")
+        end
         return
     end
     if not hubSound then
         return
     end
-    local id = normalizeAudioId(song.id)
     if hubSound.SoundId ~= id then
         hubSound.SoundId = id
         hubSound.TimePosition = 0
@@ -2742,6 +2728,8 @@ ytAddTrack = function(t)
     local wasEmpty = #Config.yt.tracks == 0
     Config.yt.tracks[#Config.yt.tracks + 1] = {
         id = normalizeAudioId(t.id),
+        path = "",
+        kind = "id",
         title = title,
         artist = tostring(t.artist or ""),
         lyrics = tostring(t.lyrics or ""),
@@ -2780,172 +2768,168 @@ ytDeleteTrack = function(i)
     saveSettings()
 end
 
-local function httpGet(url)
-    local fn = execEnv.httpget or execEnv.HttpGet
-    if type(fn) ~= "function" and type(httpget) == "function" then
-        fn = httpget
+local function ensureMusicFolder()
+    local make = execEnv.makefolder or makefolder
+    if type(make) == "function" then
+        pcall(make, MUSIC_FOLDER)
     end
-    if type(fn) ~= "function" and type(http_request) == "function" then
-        fn = http_request
+    local wf = execEnv.writefile or writefile
+    if type(wf) == "function" then
+        pcall(wf, MUSIC_FOLDER .. "/README.txt",
+            "Thả file .mp3 / .ogg / .wav vào folder này.\n"
+            .. "Mở tab MUSIC trong Bench UI và bấm REFRESH LOCAL FILES.\n")
     end
-    if type(fn) ~= "function" and game then
-        fn = game.HttpGet
+end
+
+local function scanMusicFiles()
+    local list = execEnv.listfiles or listfiles
+    if type(list) ~= "function" then
+        return nil
     end
-    if type(fn) == "function" then
-        local ok, body = pcall(fn, url)
-        if ok then
-            if type(body) == "table" then
-                body = body.Body or body.body
-            end
-            if type(body) == "string" and body ~= "" then
-                return body
-            end
+    local ok, files = pcall(list, MUSIC_FOLDER)
+    if not ok or type(files) ~= "table" then
+        return {}
+    end
+    local out = {}
+    for _, raw in ipairs(files) do
+        local path = tostring(raw)
+        local lower = string.lower(path)
+        if lower:match("%.mp3$") or lower:match("%.ogg$") or lower:match("%.wav$") then
+            local name = path:match("([^/\\]+)$") or path
+            local title = name:gsub("%.[^%.]+$", "")
+            out[#out + 1] = { path = path, title = title }
         end
     end
-    local ok, body = pcall(function()
-        return HttpService:GetAsync(url, true)
+    table.sort(out, function(a, b)
+        return string.lower(a.title) < string.lower(b.title)
     end)
-    if ok and type(body) == "string" and body ~= "" then
-        return body
+    return out
+end
+
+local function fileAsset(path)
+    local fn = execEnv.getcustomasset or execEnv.getsynasset
+        or execEnv.get_custom_asset
+    if type(fn) ~= "function" then
+        fn = getcustomasset or getsynasset
+    end
+    if type(fn) == "function" then
+        local ok, asset = pcall(fn, path)
+        if ok and type(asset) == "string" and asset ~= "" then
+            return asset
+        end
     end
     return nil
 end
 
-local INVIDIOUS = {
-    "https://inv.nadeko.net",
-    "https://invidious.nerdvpn.de",
-    "https://yewtu.be",
-    "https://iv.melmac.space",
-    "https://invidious.f5.si",
-}
+trackAsset = function(song)
+    if type(song) ~= "table" then
+        return ""
+    end
+    if (song.path or "") ~= "" then
+        return fileAsset(song.path) or ""
+    end
+    return normalizeAudioId(song.id)
+end
 
-ytDoSearch = function()
-    local query = ytQuery.Text
-    query = query:gsub("^%s+", ""):gsub("%s+$", "")
-    if query == "" then
-        toast("Nhập từ khóa trước.")
+refreshMusicLibrary = function(silent)
+    ensureMusicFolder()
+    local files = scanMusicFiles()
+    if not files then
+        if ytLibStatus then
+            ytLibStatus.Text = "Executor không hỗ trợ listfiles — dùng audio ID bên dưới."
+        end
+        if not silent then
+            toast("Executor không hỗ trợ listfiles.")
+        end
         return
     end
-    for _, child in ipairs(ytResults:GetChildren()) do
-        if not child:IsA("UIListLayout") then
-            child:Destroy()
+
+    local oldSong = Config.yt.tracks[Config.yt.index]
+    local oldPath = oldSong and (oldSong.path or "") or ""
+    local oldId = oldSong and (oldSong.id or "") or ""
+    local oldTitle = oldSong and (oldSong.title or "") or ""
+
+    local manual = {}
+    for _, t in ipairs(Config.yt.tracks) do
+        if (t.path or "") == "" then
+            manual[#manual + 1] = t
         end
     end
-    ytStatus.Text = "Đang tìm \"" .. query .. "\"..."
-    task.spawn(function()
-        local results = nil
-        local encoded = query
-        local okEnc, enc = pcall(function()
-            return HttpService:UrlEncode(query)
-        end)
-        if okEnc and type(enc) == "string" then
-            encoded = enc
+
+    local tracks = {}
+    for _, f in ipairs(files) do
+        tracks[#tracks + 1] = {
+            id = "",
+            path = f.path,
+            kind = "file",
+            title = f.title,
+            artist = "local file",
+            lyrics = "",
+        }
+    end
+    for _, t in ipairs(manual) do
+        tracks[#tracks + 1] = t
+    end
+    Config.yt.tracks = tracks
+
+    local found = false
+    for i, t in ipairs(tracks) do
+        if oldPath ~= "" and t.path == oldPath then
+            Config.yt.index = i
+            found = true
+            break
+        elseif oldPath == "" and oldId ~= "" and t.id == oldId then
+            Config.yt.index = i
+            found = true
+            break
+        elseif oldPath == "" and oldId == "" and oldTitle ~= ""
+            and t.title == oldTitle then
+            Config.yt.index = i
+            found = true
+            break
+        end
+    end
+    if not found then
+        Config.yt.index = 1
+        if hubSound then
+            pcall(function()
+                hubSound:Stop()
+            end)
+            hubSound.SoundId = ""
+        end
+    end
+
+    ytRefreshPlaylist()
+    ytUpdateHub()
+    if ytLibStatus then
+        ytLibStatus.Text = string.format(
+            "%d file local · %d track tổng · %s",
+            #files,
+            #tracks,
+            MUSIC_FOLDER
+        )
+    end
+    if not silent then
+        if #files == 0 then
+            toast("Không thấy file .mp3/.ogg/.wav trong " .. MUSIC_FOLDER)
         else
-            encoded = query:gsub(" ", "+")
+            toast("Đã nạp " .. #files .. " file local.")
         end
-
-        for _, base in ipairs(INVIDIOUS) do
-            if not benchAlive then
-                return
-            end
-            local url = base .. "/api/v1/search?q=" .. encoded .. "&type=video"
-            local body = httpGet(url)
-            if body then
-                local ok, decoded = pcall(HttpService.JSONDecode, HttpService, body)
-                if ok and type(decoded) == "table" and type(decoded[1]) == "table" then
-                    results = decoded
-                    break
-                end
-            end
-        end
-
-        if not benchAlive then
-            return
-        end
-        if not results or #results == 0 then
-            ytStatus.Text = "Không tìm được. Thử từ khóa khác hoặc mở YouTube."
-            toast("Search thất bại — instance công khai có thể đang chặn.")
-            return
-        end
-        ytStatus.Text = string.format("Tìm thấy %d kết quả — bấm để mở.", #results)
-        for i, item in ipairs(results) do
-            local row = new("Frame", {
-                Size = UDim2.new(1, 0, 0, 46),
-                BackgroundColor3 = Theme.bg,
-                BackgroundTransparency = 0.45,
-                BorderSizePixel = 0,
-                LayoutOrder = i,
-            }, ytResults)
-            corner(row, 8)
-            local open = new("TextButton", {
-                Size = UDim2.new(1, -34, 1, 0),
-                BackgroundTransparency = 1,
-                AutoButtonColor = false,
-                Text = "",
-                BorderSizePixel = 0,
-            }, row)
-            local title = new("TextLabel", {
-                Position = UDim2.fromOffset(8, 3),
-                Size = UDim2.new(1, -16, 0, 22),
-                BackgroundTransparency = 1,
-                Font = Enum.Font.SourceSansSemibold,
-                TextSize = 11,
-                TextColor3 = Theme.text,
-                TextXAlignment = Enum.TextXAlignment.Left,
-                TextTruncate = Enum.TextTruncate.AtEnd,
-                Text = tostring(item.title or "Untitled"),
-            }, open)
-            title:SetAttribute("noFontTheme", true)
-            local meta = new("TextLabel", {
-                Position = UDim2.fromOffset(8, 24),
-                Size = UDim2.new(1, -16, 0, 16),
-                BackgroundTransparency = 1,
-                Font = Enum.Font.SourceSans,
-                TextSize = 9,
-                TextColor3 = Theme.muted,
-                TextXAlignment = Enum.TextXAlignment.Left,
-                TextTruncate = Enum.TextTruncate.AtEnd,
-                Text = tostring(item.author or "?") .. " · " .. fmtTime(item.lengthSeconds),
-            }, open)
-            meta:SetAttribute("noFontTheme", true)
-            track(open.Activated:Connect(function()
-                local vid = tostring(item.videoId or "")
-                if vid ~= "" then
-                    openUrl("https://youtu.be/" .. vid)
-                end
-            end))
-            local add = new("TextButton", {
-                Position = UDim2.new(1, -28, 0, 10),
-                Size = UDim2.fromOffset(24, 26),
-                BackgroundColor3 = Theme.accent,
-                BackgroundTransparency = 0.2,
-                AutoButtonColor = false,
-                Font = Enum.Font.GothamBold,
-                TextSize = 14,
-                TextColor3 = Color3.new(1, 1, 1),
-                Text = "+",
-                BorderSizePixel = 0,
-            }, row)
-            corner(add, 8)
-            track(add.Activated:Connect(function()
-                if ytAddTrack then
-                    ytAddTrack({
-                        id = "",
-                        title = tostring(item.title or "Untitled"),
-                        artist = tostring(item.author or ""),
-                        lyrics = "",
-                    })
-                end
-            end))
-        end
-    end)
+    end
+    saveSettings()
 end
+
+ensureMusicFolder()
+refreshMusicLibrary(true)
 
 ytUpdateHub()
 
 ui.cosPreview = cosPreview
 ui.cosPreviewCam = cosPreviewCam
 ui.audioId = normalizeAudioId
+ui.trackAsset = trackAsset
+ui.refreshMusicLibrary = refreshMusicLibrary
+ui.musicFolder = MUSIC_FOLDER
 ui.refreshCosCards = refreshCosCards
 ui.renderCosControls = renderCosControls
 ui.hubArtGrad = hubArtGrad
@@ -5437,7 +5421,9 @@ end
 
 --// cosmetic engine + music player
 local function initCosmeticsAndMusic()
-    local COS_KEYS = { "hat", "wings", "crown" }
+    local COS_KEYS = {
+        "hat", "halo", "wizard", "wings", "dragonwings", "crown", "dragon",
+    }
     local cosFolder = new("Folder", { Name = "BenchCosmetics" }, fxFolder)
     local worldModels = {}
     local previewWorld = nil
@@ -5476,6 +5462,7 @@ local function initCosmeticsAndMusic()
             y = (extra and extra.y) or 0,
             angle = (extra and extra.angle) or 0,
             lerp = (extra and extra.lerp) or 0,
+            fixed = extra and extra.fixed or nil,
         }
         parts[#parts + 1] = item
         return part
@@ -5489,48 +5476,134 @@ local function initCosmeticsAndMusic()
         end
 
         add(
-            Vector3.new(0.14, 2.8, 2.8),
+            Vector3.new(0.16, 4.4, 4.4),
             CFrame.Angles(0, 0, math.rad(90)),
-            0.28,
+            0.22,
             Enum.PartType.Cylinder
         )
         add(
-            Vector3.new(0.08, 2.2, 2.2),
-            CFrame.new(0, 0.09, 0) * CFrame.Angles(0, 0, math.rad(90)),
-            0.12,
+            Vector3.new(0.08, 4.7, 4.7),
+            CFrame.new(0, 0.02, 0) * CFrame.Angles(0, 0, math.rad(90)),
+            0.10,
             Enum.PartType.Cylinder
         )
 
         local tiers = {
-            { 0.34, 2.05 },
-            { 0.30, 1.65 },
-            { 0.26, 1.25 },
-            { 0.22, 0.85 },
-            { 0.18, 0.45 },
+            { 0.16, 3.55 },
+            { 0.14, 2.85 },
+            { 0.12, 2.15 },
+            { 0.10, 1.50 },
+            { 0.08, 0.90 },
         }
         local y = 0.06
         for _, tier in ipairs(tiers) do
             add(
                 Vector3.new(tier[1], tier[2], tier[2]),
                 CFrame.new(0, y + tier[1] * 0.5, 0) * CFrame.Angles(0, 0, math.rad(90)),
-                0.04,
+                0.03,
                 Enum.PartType.Cylinder
             )
             y = y + tier[1]
         end
 
-        add(Vector3.new(0.28, 0.28, 0.28), CFrame.new(0, y + 0.14, 0), 0, Enum.PartType.Ball, {
+        add(Vector3.new(0.38, 0.38, 0.38), CFrame.new(0, y + 0.19, 0), 0, Enum.PartType.Ball, {
             lerp = 0.35,
         })
 
-        for i = 1, 4 do
-            local a = (i - 1) * math.pi * 0.5
+        for i = 1, 6 do
+            local a = (i - 1) * math.pi / 3
             add(
-                Vector3.new(0.10, 0.34, 0.10),
+                Vector3.new(0.11, 0.40, 0.11),
                 CFrame.Angles(0, -a, 0),
                 0,
                 Enum.PartType.Block,
-                { kind = "rune", angle = a, radius = 1.18, y = 0.18, lerp = 0.45 }
+                { kind = "rune", angle = a, radius = 1.70, y = 0.28, lerp = 0.45 }
+            )
+        end
+
+        return { model = model, parts = parts }
+    end
+
+    local function buildHalo(parent, color)
+        local model = new("Model", { Name = "CosHalo" }, parent)
+        local parts = {}
+        local function add(size, off, trans, shape, extra)
+            return addCosPart(model, parts, size, off, color, trans, shape, extra)
+        end
+
+        -- Ring principal (anneau principal)
+        add(
+            Vector3.new(0.18, 3.6, 3.6),
+            CFrame.new(0, 0.55, 0) * CFrame.Angles(0, 0, math.rad(90)),
+            0.12,
+            Enum.PartType.Cylinder
+        )
+        add(
+            Vector3.new(0.10, 3.9, 3.9),
+            CFrame.new(0, 0.55, 0) * CFrame.Angles(0, 0, math.rad(90)),
+            0.35,
+            Enum.PartType.Cylinder
+        )
+
+        -- Deux points lumineux sur les côtés
+        add(
+            Vector3.new(0.32, 0.32, 0.32),
+            CFrame.new(-1.55, 0.55, 0),
+            0,
+            Enum.PartType.Ball,
+            { kind = "rune", angle = math.pi, radius = 1.55, y = 0, lerp = 0.15 }
+        )
+        add(
+            Vector3.new(0.32, 0.32, 0.32),
+            CFrame.new(1.55, 0.55, 0),
+            0,
+            Enum.PartType.Ball,
+            { kind = "rune", angle = 0, radius = 1.55, y = 0, lerp = 0.15 }
+        )
+
+        -- Arcs lumineux (vagues courbes)
+        for i = 1, 3 do
+            local a = (i - 1) * math.pi * 2 / 3
+            add(
+                Vector3.new(0.08, 0.08, 2.2),
+                CFrame.Angles(0, a, math.rad(35)),
+                0.30,
+                Enum.PartType.Block,
+                { kind = "rune", angle = a, radius = 1.2, y = 0.55, lerp = 0.25 }
+            )
+        end
+
+        -- Plans géométriques translucides (triangles / polygones)
+        for i = 1, 6 do
+            local a = (i - 1) * math.pi / 3
+            add(
+                Vector3.new(0.06, 1.1, 1.1),
+                CFrame.Angles(0, a, math.rad(20)),
+                0.65,
+                Enum.PartType.Block,
+                { kind = "rune", angle = a, radius = 1.35, y = 0.55, lerp = 0.55 }
+            )
+        end
+        for i = 1, 4 do
+            local a = (i - 1) * math.pi / 2 + math.pi / 4
+            add(
+                Vector3.new(0.05, 0.85, 0.85),
+                CFrame.Angles(0, a, math.rad(-15)),
+                0.70,
+                Enum.PartType.Block,
+                { kind = "rune", angle = a, radius = 1.5, y = 0.55, lerp = 0.60 }
+            )
+        end
+
+        -- Petits points lumineux supplémentaires
+        for i = 1, 5 do
+            local a = (i - 1) * math.pi * 2 / 5 + math.pi / 5
+            add(
+                Vector3.new(0.18, 0.18, 0.18),
+                CFrame.new(0, 0, 0),
+                0.25,
+                Enum.PartType.Ball,
+                { kind = "rune", angle = a, radius = 1.8, y = 0.55, lerp = 0.20 }
             )
         end
 
@@ -5545,40 +5618,40 @@ local function initCosmeticsAndMusic()
         end
 
         for side = -1, 1, 2 do
-            for i = 1, 5 do
-                local len = 2.35 - (i - 1) * 0.27
+            for i = 1, 6 do
+                local len = 3.80 - (i - 1) * 0.42
                 local off = CFrame.new(
-                    side * (0.16 + i * 0.045),
-                    0.18 + (i - 1) * 0.03,
-                    0.08
+                    side * (0.22 + i * 0.07),
+                    0.24 + (i - 1) * 0.04,
+                    0.10
                 )
                     * CFrame.Angles(
                         0,
-                        side * math.rad(10 + i * 5),
-                        side * math.rad(16 + i * 9)
+                        side * math.rad(12 + i * 4),
+                        side * math.rad(18 + i * 8)
                     )
                     * CFrame.new(0, len * 0.5, 0)
 
                 add(
-                    Vector3.new(0.11, len, 0.30),
+                    Vector3.new(0.14, len, 0.38),
                     off,
-                    0.12,
+                    0.10,
                     Enum.PartType.Block,
                     { kind = "wing", side = side }
                 )
                 add(
-                    Vector3.new(0.045, len * 0.86, 0.10),
-                    off * CFrame.new(0, 0, -0.11),
-                    0.02,
+                    Vector3.new(0.055, len * 0.88, 0.12),
+                    off * CFrame.new(0, 0, -0.14),
+                    0.01,
                     Enum.PartType.Block,
                     { kind = "wing", side = side, lerp = 0.55 }
                 )
             end
 
             add(
-                Vector3.new(0.34, 0.34, 0.34),
-                CFrame.new(side * 0.28, 0.42, 0.10),
-                0.05,
+                Vector3.new(0.46, 0.46, 0.46),
+                CFrame.new(side * 0.34, 0.46, 0.10),
+                0.03,
                 Enum.PartType.Ball,
                 { kind = "wing", side = side, lerp = 0.30 }
             )
@@ -5636,10 +5709,332 @@ local function initCosmeticsAndMusic()
         return { model = model, parts = parts }
     end
 
+    local function buildWizard(parent, color)
+        local model = new("Model", { Name = "CosWizard" }, parent)
+        local parts = {}
+        local function add(size, off, trans, shape, extra)
+            return addCosPart(model, parts, size, off, color, trans, shape, extra)
+        end
+
+        local black = Color3.fromRGB(16, 13, 24)
+        local function bar(a, b, thick)
+            local dir = b - a
+            local len = dir.Magnitude
+            if len < 0.001 then
+                return
+            end
+            local center = (a + b) * 0.5
+            local up = math.abs(dir.Unit.Z) > 0.9
+                and Vector3.new(0, 1, 0)
+                or Vector3.new(0, 0, 1)
+            add(
+                Vector3.new(thick, thick, len),
+                CFrame.lookAt(center, center + dir, up),
+                0.02,
+                Enum.PartType.Block,
+                { lerp = 0.35, kind = "star" }
+            )
+        end
+
+        for i = 1, 8 do
+            local a = (i - 1) * math.pi / 4
+            local tip = (i % 2 == 0) and 1.62 or 1.26
+            add(
+                Vector3.new(0.62, 0.11, tip),
+                CFrame.Angles(0, -a, 0)
+                    * CFrame.new(0, 0.06, tip * 0.5)
+                    * CFrame.Angles(math.rad(-9), 0, 0),
+                0.02,
+                Enum.PartType.Block,
+                { fixed = black }
+            )
+        end
+        add(
+            Vector3.new(0.20, 1.95, 1.95),
+            CFrame.new(0, 0.15, 0) * CFrame.Angles(0, 0, math.rad(90)),
+            0.05,
+            Enum.PartType.Cylinder,
+            { fixed = black }
+        )
+        add(
+            Vector3.new(0.12, 2.12, 2.12),
+            CFrame.new(0, 0.19, 0) * CFrame.Angles(0, 0, math.rad(90)),
+            0.55,
+            Enum.PartType.Cylinder,
+            { fixed = black }
+        )
+
+        local starY = 2.55
+        local R = 1.38
+        local function tri(rotY, flip)
+            local rot = CFrame.Angles(0, rotY, 0)
+            local verts = {}
+            for k = 0, 2 do
+                local ang = math.rad(90 + k * 120 + (flip and 180 or 0))
+                verts[#verts + 1] = rot * Vector3.new(
+                    math.cos(ang) * R,
+                    starY + math.sin(ang) * R,
+                    0
+                )
+            end
+            for k = 1, 3 do
+                bar(verts[k], verts[(k % 3) + 1], 0.12)
+            end
+        end
+        tri(0, false)
+        tri(0, true)
+        tri(math.rad(90), false)
+        tri(math.rad(90), true)
+
+        add(
+            Vector3.new(0.34, 0.34, 0.34),
+            CFrame.new(0, starY, 0),
+            0,
+            Enum.PartType.Ball,
+            { lerp = 0.75 }
+        )
+
+        for i = 1, 10 do
+            local a = (i - 1) * math.pi * 2 / 10
+            add(
+                Vector3.new(0.14, 0.14, 0.14),
+                CFrame.Angles(0, -a, 0),
+                0.05,
+                Enum.PartType.Ball,
+                {
+                    kind = "rune",
+                    angle = a,
+                    radius = 1.62,
+                    y = 0.85 + (i % 3) * 0.30,
+                    lerp = 0.65,
+                }
+            )
+        end
+
+        add(
+            Vector3.new(0.10, 2.6, 2.6),
+            CFrame.new(0, 0.62, 0) * CFrame.Angles(0, 0, math.rad(90)),
+            0.82,
+            Enum.PartType.Cylinder,
+            { kind = "aura", lerp = 0.45 }
+        )
+
+        return { model = model, parts = parts }
+    end
+
+    local function buildDragonWings(parent, color)
+        local model = new("Model", { Name = "CosDragonWings" }, parent)
+        local parts = {}
+        local function add(size, off, trans, shape, extra)
+            return addCosPart(model, parts, size, off, color, trans, shape, extra)
+        end
+
+        for side = -1, 1, 2 do
+            add(
+                Vector3.new(0.48, 0.48, 0.48),
+                CFrame.new(side * 0.40, 0.42, 0.10),
+                0.02,
+                Enum.PartType.Ball,
+                { kind = "wing", side = side, lerp = 0.30 }
+            )
+
+            for i = 1, 7 do
+                local len = 4.35 - (i - 1) * 0.40
+                local off = CFrame.new(
+                    side * (0.30 + i * 0.06),
+                    0.30 + (i - 1) * 0.05,
+                    0.12
+                )
+                    * CFrame.Angles(
+                        0,
+                        side * math.rad(8 + i * 3),
+                        side * math.rad(10 + i * 9)
+                    )
+                    * CFrame.new(0, len * 0.5, 0)
+                add(
+                    Vector3.new(0.22, len, 0.36),
+                    off,
+                    0.05,
+                    Enum.PartType.Block,
+                    { kind = "wing", side = side }
+                )
+                add(
+                    Vector3.new(0.09, len * 0.86, 0.11),
+                    off * CFrame.new(0, 0, -0.13),
+                    0,
+                    Enum.PartType.Block,
+                    { kind = "wing", side = side, lerp = 0.68 }
+                )
+            end
+
+            for i = 1, 4 do
+                local len = 2.5 - i * 0.26
+                add(
+                    Vector3.new(0.13, len, 0.24),
+                    CFrame.new(
+                        side * (0.62 + i * 0.30),
+                        0.55 + i * 0.09,
+                        0.08
+                    )
+                        * CFrame.Angles(
+                            0,
+                            side * math.rad(34 + i * 9),
+                            side * math.rad(42 + i * 11)
+                        )
+                        * CFrame.new(0, len * 0.5, 0),
+                    0.32,
+                    Enum.PartType.Block,
+                    { kind = "wing", side = side, lerp = 0.22 }
+                )
+            end
+        end
+
+        return { model = model, parts = parts }
+    end
+
+    local function buildDragon(parent, color)
+        local model = new("Model", { Name = "CosDragon" }, parent)
+        local parts = {}
+        local function add(size, off, trans, shape, extra)
+            return addCosPart(model, parts, size, off, color, trans, shape, extra)
+        end
+
+        local white = Color3.fromRGB(240, 250, 255)
+        local dark = Color3.fromRGB(16, 16, 28)
+
+        add(Vector3.new(0.98, 0.78, 1.55), CFrame.new(0, 0, 0), 0.02, Enum.PartType.Block)
+        add(
+            Vector3.new(0.60, 0.52, 0.55),
+            CFrame.new(0, -0.06, -0.48),
+            0.38,
+            Enum.PartType.Block,
+            { lerp = 0.65 }
+        )
+        add(
+            Vector3.new(0.58, 0.58, 0.72),
+            CFrame.new(0, 0.28, -0.84) * CFrame.Angles(math.rad(-14), 0, 0),
+            0.02,
+            Enum.PartType.Block
+        )
+        add(Vector3.new(0.74, 0.64, 0.74), CFrame.new(0, 0.55, -1.24), 0.02, Enum.PartType.Block)
+        add(Vector3.new(0.50, 0.34, 0.58), CFrame.new(0, 0.43, -1.72), 0.02, Enum.PartType.Block)
+
+        for side = -1, 1, 2 do
+            add(
+                Vector3.new(0.15, 0.15, 0.15),
+                CFrame.new(side * 0.25, 0.63, -1.53),
+                0,
+                Enum.PartType.Ball,
+                { fixed = white }
+            )
+            add(
+                Vector3.new(0.09, 0.09, 0.09),
+                CFrame.new(side * 0.25, 0.63, -1.61),
+                0,
+                Enum.PartType.Ball,
+                { fixed = dark }
+            )
+            add(
+                Vector3.new(0.13, 0.52, 0.13),
+                CFrame.new(side * 0.23, 0.94, -1.06)
+                    * CFrame.Angles(math.rad(-18), 0, side * math.rad(14)),
+                0,
+                Enum.PartType.Cylinder
+            )
+            add(
+                Vector3.new(0.10, 0.34, 0.10),
+                CFrame.new(side * 0.36, 0.90, -0.92)
+                    * CFrame.Angles(math.rad(-26), 0, side * math.rad(24)),
+                0.05,
+                Enum.PartType.Cylinder,
+                { lerp = 0.4 }
+            )
+
+            for i = 1, 4 do
+                local len = 1.55 - (i - 1) * 0.24
+                add(
+                    Vector3.new(0.12, len, 0.24),
+                    CFrame.new(side * 0.42, 0.26, -0.30)
+                        * CFrame.Angles(
+                            0,
+                            side * math.rad(12 + i * 5),
+                            side * math.rad(22 + i * 14)
+                        )
+                        * CFrame.new(0, len * 0.5, 0),
+                    0.06,
+                    Enum.PartType.Block,
+                    { kind = "wing", side = side }
+                )
+                add(
+                    Vector3.new(0.06, len * 0.82, 0.09),
+                    CFrame.new(side * 0.44, 0.26, -0.34)
+                        * CFrame.Angles(
+                            0,
+                            side * math.rad(12 + i * 5),
+                            side * math.rad(22 + i * 14)
+                        )
+                        * CFrame.new(0, len * 0.5, 0),
+                    0,
+                    Enum.PartType.Block,
+                    { kind = "wing", side = side, lerp = 0.6 }
+                )
+            end
+
+            add(
+                Vector3.new(0.20, 0.42, 0.20),
+                CFrame.new(side * 0.36, -0.48, -0.42),
+                0.02,
+                Enum.PartType.Block
+            )
+            add(
+                Vector3.new(0.20, 0.42, 0.20),
+                CFrame.new(side * 0.36, -0.48, 0.42),
+                0.02,
+                Enum.PartType.Block
+            )
+        end
+
+        for i = 1, 5 do
+            local z = 0.72 + (i - 1) * 0.36
+            local s = 0.62 - (i - 1) * 0.085
+            add(
+                Vector3.new(s, s * 0.82, 0.46),
+                CFrame.new(0, 0.06 + (i - 1) * 0.02, z),
+                0.02,
+                Enum.PartType.Block
+            )
+        end
+        add(
+            Vector3.new(0.14, 0.42, 0.14),
+            CFrame.new(0, 0.16, 2.42)
+                * CFrame.Angles(math.rad(38), 0, 0),
+            0.02,
+            Enum.PartType.Block,
+            { lerp = 0.45 }
+        )
+
+        for i = 1, 4 do
+            add(
+                Vector3.new(0.10, 0.34 - i * 0.03, 0.24),
+                CFrame.new(0, 0.48 + (i - 1) * 0.05, -0.62 + i * 0.38)
+                    * CFrame.Angles(math.rad(-18), 0, 0),
+                0.05,
+                Enum.PartType.Block,
+                { lerp = 0.55 }
+            )
+        end
+
+        return { model = model, parts = parts }
+    end
+
     local builders = {
         hat = buildHat,
+        halo = buildHalo,
+        wizard = buildWizard,
         wings = buildWings,
+        dragonwings = buildDragonWings,
         crown = buildCrown,
+        dragon = buildDragon,
     }
 
     for _, key in ipairs(COS_KEYS) do
@@ -5712,8 +6107,8 @@ local function initCosmeticsAndMusic()
             local cm = worldModels[key]
             if cm then
                 for _, item in ipairs(cm.parts) do
-                    local col = cfg.color
-                    if item.lerp > 0 then
+                    local col = item.fixed or cfg.color
+                    if not item.fixed and item.lerp > 0 then
                         col = col:Lerp(Color3.new(1, 1, 1), item.lerp)
                     end
                     item.part.Color = col
@@ -5726,8 +6121,8 @@ local function initCosmeticsAndMusic()
             local pm = previewModels[key]
             if pm then
                 for _, item in ipairs(pm.parts) do
-                    local col = cfg.color
-                    if item.lerp > 0 then
+                    local col = item.fixed or cfg.color
+                    if not item.fixed and item.lerp > 0 then
                         col = col:Lerp(Color3.new(1, 1, 1), item.lerp)
                     end
                     item.part.Color = col
@@ -5883,10 +6278,23 @@ local function initCosmeticsAndMusic()
             local cfg = Config.cosmetic[key]
             if cm then
                 local base
-                if key == "wings" then
+                if key == "wings" or key == "dragonwings" then
                     if torso then
                         base = torso.CFrame
                             * CFrame.new(0, 0.35, torso.Size.Z * 0.5 + 0.12)
+                    end
+                elseif key == "dragon" then
+                    local root = torso or head
+                    if root then
+                        local a = t * 1.35
+                        local pos = Vector3.new(
+                            math.cos(a) * 2.35,
+                            0.85 + math.sin(t * 2.3) * 0.32,
+                            math.sin(a) * 2.35
+                        )
+                        local vel = Vector3.new(-math.sin(a), 0, math.cos(a))
+                        base = root.CFrame
+                            * CFrame.lookAt(pos, pos + vel)
                     end
                 elseif head then
                     base = head.CFrame
@@ -5896,7 +6304,8 @@ local function initCosmeticsAndMusic()
                 local ghost = not cfg.enabled
                 local visible = cfg.enabled or (Config.cosmetic.selected == i)
                 if base and visible then
-                    if key ~= "wings" then
+                    if key ~= "wings" and key ~= "dragonwings"
+                        and key ~= "dragon" then
                         previewAngles[key] =
                             (previewAngles[key] or 0) + dt * math.rad(cfg.spin or 0)
                     end
@@ -5945,10 +6354,23 @@ local function initCosmeticsAndMusic()
             local cfg = Config.cosmetic[key]
             if cm then
                 local base
-                if key == "wings" then
+                if key == "wings" or key == "dragonwings" then
                     if torso then
                         base = torso.CFrame
                             * CFrame.new(0, 0.35, torso.Size.Z * 0.5 + 0.12)
+                    end
+                elseif key == "dragon" then
+                    local root = torso or head
+                    if root then
+                        local a = t * 1.35
+                        local pos = Vector3.new(
+                            math.cos(a) * 2.55,
+                            0.85 + math.sin(t * 2.3) * 0.35,
+                            math.sin(a) * 2.55
+                        )
+                        local vel = Vector3.new(-math.sin(a), 0, math.cos(a))
+                        base = root.CFrame
+                            * CFrame.lookAt(pos, pos + vel)
                     end
                 elseif head then
                     base = head.CFrame
@@ -5956,7 +6378,8 @@ local function initCosmeticsAndMusic()
                 end
 
                 if base and cfg.enabled then
-                    if key ~= "wings" then
+                    if key ~= "wings" and key ~= "dragonwings"
+                        and key ~= "dragon" then
                         cm.angle = (cm.angle or 0) + dt * math.rad(cfg.spin or 0)
                     end
                     updateModel(cm, base, cfg, t, cm.angle or 0, true, false)
@@ -5994,8 +6417,8 @@ local function initCosmeticsAndMusic()
         end
     end))
     local firstSong = Config.yt.tracks[Config.yt.index]
-    if firstSong and ui.audioId then
-        local id = ui.audioId(firstSong.id)
+    if firstSong and ui.trackAsset then
+        local id = ui.trackAsset(firstSong)
         if id ~= "" then
             hubSound.SoundId = id
         end
