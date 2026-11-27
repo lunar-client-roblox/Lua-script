@@ -1,9 +1,11 @@
 --[[
-    Bench UI v2 — Roblox client script
-    launcher -> mobile GUI (4 tabs)
+    Bench UI v3 — Roblox client script
+    launcher -> mobile GUI (6 tabs)
     combat: camera / silent / hybrid aim
     render: ESP 2D+3D, target FX, sky styles, jump / walk / orbit effects
-    gui: fonts, colors, border, image background
+    cosmetic: 3D preview + energy china hat / wings / crown
+    youtube: public video search + music hub with LRC lyrics
+    gui: fonts, colors, border, image background, settings backup
     exec: paste into executor, run.
 ]]
 
@@ -16,6 +18,10 @@ local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local Lighting = game:GetService("Lighting")
+local SoundService = game:GetService("SoundService")
+local HttpService = game:GetService("HttpService")
+
+local execEnv = (getgenv and getgenv()) or _G
 
 local LocalPlayer = Players.LocalPlayer
 while not LocalPlayer do
@@ -36,6 +42,7 @@ local FONTS = {
     { name = "Highway",     font = Enum.Font.Highway },
     { name = "Bodoni",      font = Enum.Font.Bodoni },
     { name = "Garamond",    font = Enum.Font.Garamond },
+    { name = "Source Sans", font = Enum.Font.SourceSans },
 }
 
 local Config = {
@@ -62,6 +69,7 @@ local Config = {
         rainbow = false,
         color = Color3.fromRGB(0, 170, 255),
         targetColor = Color3.fromRGB(255, 64, 64),
+        targetSpin = 90,
     },
     sky = {
         enabled = false,
@@ -91,6 +99,45 @@ local Config = {
         size = 1,
         color = Color3.fromRGB(255, 220, 80),
         rainbow = false,
+    },
+    cosmetic = {
+        selected = 1,
+        hat = {
+            enabled = false,
+            color = Color3.fromRGB(80, 200, 255),
+            x = 0, y = 0, z = 0,
+            scale = 1,
+            spin = 0,
+        },
+        wings = {
+            enabled = false,
+            color = Color3.fromRGB(190, 90, 255),
+            x = 0, y = 0, z = 0,
+            scale = 1,
+            spin = 45,
+        },
+        crown = {
+            enabled = false,
+            color = Color3.fromRGB(170, 120, 255),
+            x = 0, y = 0, z = 0,
+            scale = 1,
+            spin = 20,
+        },
+    },
+    yt = {
+        hub = false,
+        hubX = 0.62,
+        hubY = 0.68,
+        volume = 60,
+        index = 1,
+        tracks = {
+            {
+                id = "",
+                title = "Không Buông",
+                artist = "Hngle",
+                lyrics = "[00:00] Anh có để chịu vậy\n[00:08] rồi cũng ra như này",
+            },
+        },
     },
     gui = {
         font = 1,
@@ -197,21 +244,375 @@ if getgenv and getgenv().BenchUnload then
     getgenv().BenchUnload = nil
 end
 pcall(function()
-    for _, name in ipairs({ "BenchUI", "BenchESP" }) do
+    for _, name in ipairs({ "BenchUI", "BenchESP", "BenchMusic" }) do
         local old = LocalPlayer.PlayerGui:FindFirstChild(name)
         if old then
             old:Destroy()
+        end
+    end
+    if type(gethui) == "function" then
+        local okHui, hui = pcall(gethui)
+        if okHui and hui and hui ~= LocalPlayer.PlayerGui then
+            for _, name in ipairs({ "BenchUI", "BenchESP", "BenchMusic" }) do
+                local old = hui:FindFirstChild(name)
+                if old then
+                    old:Destroy()
+                end
+            end
         end
     end
     local oldFx = workspace:FindFirstChild("BenchFX")
     if oldFx then
         oldFx:Destroy()
     end
+    for _, sound in ipairs(SoundService:GetChildren()) do
+        if sound:IsA("Sound") and sound.Name == "BenchMusicSound" then
+            sound:Destroy()
+        end
+    end
 end)
 
 local vp = viewport()
 local unload
 local applyTheme
+
+--// cross-block references
+local musicGui = nil
+local musicHub = nil
+local hubSound = nil
+local benchAlive = true
+local cosmeticRefresh = function() end
+local ytRefreshPlaylist = function() end
+local ytUpdateHub = function() end
+local applyHubPos = function() end
+local updateCosmetics = function() end
+local ui = {}
+
+--// settings backup
+local SETTINGS_PATH = "BenchUI_settings.json"
+
+local function toData(v)
+    local t = typeof(v)
+    if t == "Color3" then
+        return { __t = "Color3", r = v.R, g = v.G, b = v.B }
+    elseif t == "table" then
+        local out = {}
+        for k, val in pairs(v) do
+            local c = toData(val)
+            if c ~= nil then
+                out[k] = c
+            end
+        end
+        return out
+    elseif t == "number" or t == "string" or t == "boolean" then
+        return v
+    end
+    return nil
+end
+
+local function fromData(v)
+    if type(v) ~= "table" then
+        return v
+    end
+    if v.__t == "Color3" then
+        return Color3.new(tonumber(v.r) or 0, tonumber(v.g) or 0, tonumber(v.b) or 0)
+    end
+    local out = {}
+    for k, val in pairs(v) do
+        if k ~= "__t" then
+            out[k] = fromData(val)
+        end
+    end
+    return out
+end
+
+local function isArray(t)
+    if type(t) ~= "table" then
+        return false
+    end
+    local n = 0
+    for k in pairs(t) do
+        if type(k) ~= "number" then
+            return false
+        end
+        n = n + 1
+    end
+    return n == #t
+end
+
+local function mergeSettings(dst, src)
+    for k, v in pairs(src) do
+        if k ~= "savedAt" then
+            if type(v) == "table" and type(dst[k]) == "table" then
+                if isArray(v) then
+                    local arr = {}
+                    for i, item in ipairs(v) do
+                        arr[i] = item
+                    end
+                    dst[k] = arr
+                else
+                    mergeSettings(dst[k], v)
+                end
+            else
+                dst[k] = v
+            end
+        end
+    end
+end
+
+local function copyToClipboard(text)
+    local fn = execEnv.setclipboard or execEnv.toclipboard
+    if type(fn) ~= "function" and type(setclipboard) == "function" then
+        fn = setclipboard
+    end
+    if type(fn) ~= "function" and syn and type(syn.setclipboard) == "function" then
+        fn = syn.setclipboard
+    end
+    if type(fn) == "function" then
+        pcall(fn, text)
+        return true
+    end
+    return false
+end
+
+local function saveSettings()
+    local ok, encoded = pcall(function()
+        local data = toData(Config)
+        data.savedAt = os.time()
+        return HttpService:JSONEncode(data)
+    end)
+    if not ok then
+        return nil
+    end
+    if getgenv then
+        pcall(function()
+            getgenv().BenchUISettings = encoded
+        end)
+    end
+    local wf = execEnv.writefile
+    if type(wf) ~= "function" and type(writefile) == "function" then
+        wf = writefile
+    end
+    if type(wf) == "function" then
+        pcall(wf, SETTINGS_PATH, encoded)
+    end
+    return encoded
+end
+
+local function applySettingsData(data)
+    if type(data) ~= "table" then
+        return false
+    end
+    local decoded = fromData(data)
+    for _, key in ipairs({
+        "gui", "aim", "esp", "sky", "jump", "walk", "orbit", "cosmetic", "yt",
+    }) do
+        if decoded[key] ~= nil and type(decoded[key]) ~= "table" then
+            return false
+        end
+    end
+    if decoded.yt and decoded.yt.tracks ~= nil
+        and type(decoded.yt.tracks) ~= "table" then
+        return false
+    end
+    if decoded.cosmetic then
+        for _, key in ipairs({ "hat", "wings", "crown" }) do
+            if decoded.cosmetic[key] ~= nil
+                and type(decoded.cosmetic[key]) ~= "table" then
+                return false
+            end
+        end
+    end
+    mergeSettings(Config, decoded)
+    if type(decoded.yt) == "table" and type(decoded.yt.tracks) == "table" then
+        local arr = {}
+        for _, item in ipairs(decoded.yt.tracks) do
+            if type(item) == "table" then
+                arr[#arr + 1] = item
+            end
+        end
+        Config.yt.tracks = arr
+    end
+
+    Config.gui.font = math.clamp(tonumber(Config.gui.font) or 1, 1, #FONTS)
+    Config.gui.borderWidth = math.clamp(tonumber(Config.gui.borderWidth) or 1, 0, 6)
+    Config.gui.corner = math.clamp(tonumber(Config.gui.corner) or 16, 0, 30)
+    Config.gui.transparency = math.clamp(tonumber(Config.gui.transparency) or 0, 0, 1)
+    Config.gui.imageTransparency = math.clamp(
+        tonumber(Config.gui.imageTransparency) or 0.85,
+        0,
+        1
+    )
+    Config.gui.imageId = tostring(Config.gui.imageId or "")
+
+    local function keepColor(value, fallback)
+        if typeof(value) == "Color3" then
+            return value
+        end
+        return fallback
+    end
+    Config.gui.accent = keepColor(Config.gui.accent, Color3.fromRGB(0, 170, 255))
+    Config.gui.bg = keepColor(Config.gui.bg, Color3.fromRGB(18, 19, 23))
+    Config.gui.border = keepColor(Config.gui.border, Color3.fromRGB(44, 47, 55))
+    Config.esp.color = keepColor(Config.esp.color, Color3.fromRGB(0, 170, 255))
+    Config.esp.targetColor = keepColor(Config.esp.targetColor, Color3.fromRGB(255, 64, 64))
+    Config.sky.colorA = keepColor(Config.sky.colorA, Color3.fromRGB(80, 255, 190))
+    Config.sky.colorB = keepColor(Config.sky.colorB, Color3.fromRGB(130, 90, 255))
+    Config.jump.color = keepColor(Config.jump.color, Color3.fromRGB(255, 220, 80))
+    Config.walk.color = keepColor(Config.walk.color, Color3.fromRGB(255, 120, 60))
+    Config.orbit.color = keepColor(Config.orbit.color, Color3.fromRGB(255, 220, 80))
+
+    Config.cosmetic.selected = math.clamp(tonumber(Config.cosmetic.selected) or 1, 1, 3)
+    Config.aim.mode = math.clamp(tonumber(Config.aim.mode) or 1, 1, #AIM_MODES)
+    Config.aim.part = math.clamp(tonumber(Config.aim.part) or 1, 1, #AIM_PARTS)
+    Config.aim.fov = math.clamp(tonumber(Config.aim.fov) or 220, 80, 600)
+    Config.aim.smooth = math.clamp(tonumber(Config.aim.smooth) or 6, 1, 20)
+    Config.aim.predict = math.clamp(tonumber(Config.aim.predict) or 0, 0, 30)
+    Config.esp.style = math.clamp(tonumber(Config.esp.style) or 1, 1, #ESP_STYLES)
+    Config.esp.targetSpin = math.clamp(tonumber(Config.esp.targetSpin) or 90, 0, 720)
+    Config.sky.type = math.clamp(tonumber(Config.sky.type) or 1, 1, #SKY_NAMES)
+    Config.sky.speed = math.clamp(tonumber(Config.sky.speed) or 40, 0, 100)
+    Config.walk.mode = math.clamp(tonumber(Config.walk.mode) or 1, 1, #WALK_MODES)
+    Config.walk.power = math.clamp(tonumber(Config.walk.power) or 1, 1, 3)
+    Config.orbit.kind = math.clamp(tonumber(Config.orbit.kind) or 1, 1, #ORBIT_KINDS)
+    Config.orbit.count = math.clamp(tonumber(Config.orbit.count) or 8, 1, 10)
+    Config.orbit.radius = math.clamp(tonumber(Config.orbit.radius) or 3.5, 2, 10)
+    Config.orbit.size = math.clamp(tonumber(Config.orbit.size) or 1, 1, 3)
+    Config.yt.volume = math.clamp(tonumber(Config.yt.volume) or 60, 0, 100)
+    Config.yt.hubX = math.clamp(tonumber(Config.yt.hubX) or 0.62, 0, 1)
+    Config.yt.hubY = math.clamp(tonumber(Config.yt.hubY) or 0.68, 0, 1)
+    if #Config.yt.tracks == 0 then
+        Config.yt.index = 1
+    else
+        Config.yt.index = math.clamp(tonumber(Config.yt.index) or 1, 1, #Config.yt.tracks)
+    end
+
+    for _, key in ipairs({ "hat", "wings", "crown" }) do
+        local c = Config.cosmetic[key]
+        if type(c) == "table" then
+            c.x = tonumber(c.x) or 0
+            c.y = tonumber(c.y) or 0
+            c.z = tonumber(c.z) or 0
+            c.scale = math.clamp(tonumber(c.scale) or 1, 1, 3)
+            c.spin = math.clamp(tonumber(c.spin) or 0, 0, 360)
+            c.enabled = c.enabled == true
+            if typeof(c.color) ~= "Color3" then
+                c.color = Color3.fromRGB(120, 180, 255)
+            end
+        end
+    end
+
+    if type(Config.yt.tracks) ~= "table" then
+        Config.yt.tracks = {}
+    end
+    Config.yt.hub = Config.yt.hub == true
+    local cleanTracks = {}
+    for _, item in ipairs(Config.yt.tracks) do
+        if type(item) == "table" then
+            cleanTracks[#cleanTracks + 1] = {
+                id = tostring(item.id or ""),
+                title = tostring(item.title or "Untitled"),
+                artist = tostring(item.artist or ""),
+                lyrics = tostring(item.lyrics or ""),
+            }
+        end
+    end
+    Config.yt.tracks = cleanTracks
+    if #Config.yt.tracks == 0 then
+        Config.yt.index = 1
+    else
+        Config.yt.index = math.clamp(Config.yt.index, 1, #Config.yt.tracks)
+    end
+
+    if applyTheme then
+        pcall(applyTheme)
+    end
+    if cosmeticRefresh then
+        pcall(cosmeticRefresh)
+    end
+    if ui.renderCosControls then
+        pcall(ui.renderCosControls)
+    end
+    if ytRefreshPlaylist then
+        pcall(ytRefreshPlaylist)
+    end
+    if musicHub then
+        musicHub.Visible = Config.yt.hub
+        if Config.yt.hub and applyHubPos then
+            pcall(applyHubPos)
+        end
+    end
+    if hubSound then
+        hubSound.Volume = Config.yt.volume / 100
+        local song = Config.yt.tracks[Config.yt.index]
+        local id = ""
+        if song and ui.audioId then
+            id = ui.audioId(song.id)
+        end
+        if hubSound.SoundId ~= id then
+            pcall(function()
+                hubSound:Stop()
+            end)
+            hubSound.SoundId = id
+            hubSound.TimePosition = 0
+        end
+    end
+    if ytUpdateHub then
+        pcall(ytUpdateHub)
+    end
+    saveSettings()
+    return true
+end
+
+local function loadSettings()
+    local rawList = {}
+    local rf = execEnv.readfile
+    if type(rf) ~= "function" and type(readfile) == "function" then
+        rf = readfile
+    end
+    local isf = execEnv.isfile
+    if type(isf) ~= "function" and type(isfile) == "function" then
+        isf = isfile
+    end
+    if type(rf) == "function" then
+        local exists = true
+        if type(isf) == "function" then
+            local ok, res = pcall(isf, SETTINGS_PATH)
+            exists = ok and res
+        end
+        if exists then
+            local ok, raw = pcall(rf, SETTINGS_PATH)
+            if ok and type(raw) == "string" then
+                rawList[#rawList + 1] = raw
+            end
+        end
+    end
+    if getgenv then
+        local ok, raw = pcall(function()
+            return getgenv().BenchUISettings
+        end)
+        if ok and type(raw) == "string" then
+            rawList[#rawList + 1] = raw
+        end
+    end
+
+    local best, bestTime = nil, -1
+    for _, raw in ipairs(rawList) do
+        local ok, data = pcall(HttpService.JSONDecode, HttpService, raw)
+        if ok and type(data) == "table" then
+            local stamp = tonumber(data.savedAt) or 0
+            if stamp >= bestTime then
+                best, bestTime = data, stamp
+            end
+        end
+    end
+    if best then
+        pcall(applySettingsData, best)
+    end
+end
+
+loadSettings()
+syncTheme()
 
 --// gui roots
 local gui = new("ScreenGui", {
@@ -327,7 +728,7 @@ local subtitle = new("TextLabel", {
     TextSize = 10,
     TextColor3 = Theme.muted,
     TextXAlignment = Enum.TextXAlignment.Left,
-    Text = "aim · esp · sky · fx",
+    Text = "aim · esp · sky · cosmetic · music",
     ZIndex = 23,
 }, header)
 tint(subtitle, "TextColor3", "muted")
@@ -393,17 +794,20 @@ local function section(parent, text)
 end
 
 local function note(parent, text, height)
-    return addOrder(parent, new("TextLabel", {
+    local label = new("TextLabel", {
         Size = UDim2.new(1, 0, 0, height or 44),
+        AutomaticSize = Enum.AutomaticSize.Y,
         BackgroundTransparency = 1,
-        Font = Enum.Font.GothamMedium,
+        Font = Enum.Font.SourceSans,
         TextSize = 11,
         TextColor3 = Theme.muted,
         TextWrapped = true,
         TextXAlignment = Enum.TextXAlignment.Left,
         TextYAlignment = Enum.TextYAlignment.Top,
         Text = text,
-    }, parent))
+    }, parent)
+    label:SetAttribute("noFontTheme", true)
+    return addOrder(parent, label)
 end
 
 local function toggleRow(parent, label, default, onChange)
@@ -1047,10 +1451,12 @@ end
 local DANGER = Color3.fromRGB(220, 70, 70)
 
 local tabDefs = {
-    { key = "info",   label = "INFO" },
-    { key = "combat", label = "COMBAT" },
-    { key = "render", label = "RENDER" },
-    { key = "gui",    label = "GUI" },
+    { key = "info",     label = "INFO" },
+    { key = "combat",   label = "COMBAT" },
+    { key = "render",   label = "RENDER" },
+    { key = "cosmetic", label = "COSMETIC" },
+    { key = "youtube",  label = "YOUTUBE" },
+    { key = "gui",      label = "GUI" },
 }
 
 local tabButtons = {}
@@ -1092,14 +1498,15 @@ local function selectTab(key)
     end
 end
 
+local tabW = 1 / #tabDefs
 for i, def in ipairs(tabDefs) do
     local btn = new("TextButton", {
-        Size = UDim2.new(0.25, -2, 1, 0),
-        Position = UDim2.new((i - 1) * 0.25, 0, 0, 0),
+        Size = UDim2.new(tabW, -2, 1, 0),
+        Position = UDim2.new((i - 1) * tabW, 0, 0, 0),
         BackgroundColor3 = Theme.bg2,
         AutoButtonColor = false,
         Font = Enum.Font.GothamBold,
-        TextSize = 10,
+        TextSize = 8,
         TextColor3 = Theme.muted,
         Text = def.label,
         BorderSizePixel = 0,
@@ -1121,14 +1528,16 @@ addOrder(pages.info, new("TextLabel", {
     TextSize = 17,
     TextColor3 = Theme.text,
     TextXAlignment = Enum.TextXAlignment.Left,
-    Text = "BENCH v2",
+    Text = "BENCH v3",
 }, pages.info))
 
 note(pages.info,
     "Script client cho Roblox. Kéo icon để di chuyển, chạm để mở bảng.\n\n"
     .. "COMBAT — aim camera / silent / hybrid, FOV, smooth, prediction.\n"
-    .. "RENDER — ESP 2D + 3D, target FX, aurora sky, jump / walk / orbit fx.\n"
-    .. "GUI — font (có Minecraft), màu nâng cao, viền, ảnh nền theo ID.", 96)
+    .. "RENDER — ESP 2D + 3D, target FX, sky styles, jump / walk / orbit fx.\n"
+    .. "COSMETIC — mô hình 3D, china hat / wings / crown năng lượng.\n"
+    .. "YOUTUBE — tìm video + music hub lyric (không nhúng web thật).\n"
+    .. "GUI — font (có Minecraft), màu nâng cao, viền, ảnh nền, backup settings.", 120)
 
 note(pages.info,
     "Silent aim cần executor có hookmetamethod. Không có thì tự chạy camera aim.\n"
@@ -1140,7 +1549,7 @@ buttonRow(pages.info, "UNLOAD", Color3.fromRGB(58, 26, 30), function()
     end
 end)
 
-note(pages.info, "v2.0 · mobile build · no key", 16)
+note(pages.info, "v3.0 · mobile build · no key", 16)
 
 --// COMBAT page
 section(pages.combat, "aimbot")
@@ -1208,6 +1617,9 @@ end)
 toggleRow(targetGroup, "Reticle", Config.esp.reticle, function(v)
     Config.esp.reticle = v
 end)
+sliderRow(targetGroup, "Reticle spin", 0, 720, Config.esp.targetSpin, " deg/s", function(v)
+    Config.esp.targetSpin = v
+end)
 colorPicker(targetGroup, "Target color", Config.esp, "targetColor")
 
 local skyGroup = collapsible(pages.render, "sky shader", true)
@@ -1271,6 +1683,1276 @@ toggleRow(orbitGroup, "Rainbow orbit", Config.orbit.rainbow, function(v)
 end)
 colorPicker(orbitGroup, "Orbit color", Config.orbit, "color")
 
+
+--// cosmetic + music ui
+do
+local ytPlay, ytTogglePlay, ytNext, ytPrev, ytSeek
+local ytDoSearch, ytAddTrack, ytDeleteTrack
+
+--// cosmetic page
+local COSMETIC_DEFS = {
+    { key = "hat", label = "China Hat", desc = "Energy cone" },
+    { key = "wings", label = "Energy Wings", desc = "Neon blades" },
+    { key = "crown", label = "Energy Crown", desc = "Five spikes" },
+}
+local cosCards = {}
+local cosControls
+local cosPreview
+local cosPreviewCam
+local renderCosControls
+
+section(pages.cosmetic, "cosmetic studio")
+
+local cosTop = new("Frame", {
+    Size = UDim2.new(1, 0, 0, 238),
+    BackgroundColor3 = Theme.bg2,
+    BorderSizePixel = 0,
+}, pages.cosmetic)
+corner(cosTop, 12)
+tint(cosTop, "BackgroundColor3", "bg2")
+addOrder(pages.cosmetic, cosTop)
+
+cosPreview = new("ViewportFrame", {
+    Position = UDim2.fromOffset(8, 8),
+    Size = UDim2.new(0.48, -12, 1, -16),
+    BackgroundColor3 = Color3.fromRGB(10, 12, 18),
+    BackgroundTransparency = 0,
+    Ambient = Color3.fromRGB(120, 120, 140),
+    LightColor = Color3.fromRGB(255, 255, 255),
+    LightDirection = Vector3.new(-1, -1, -1),
+}, cosTop)
+corner(cosPreview, 10)
+stroke(cosPreview, Theme.stroke, 1)
+cosPreviewCam = new("Camera", { FieldOfView = 56 }, cosPreview)
+cosPreview.CurrentCamera = cosPreviewCam
+
+new("TextLabel", {
+    Position = UDim2.fromOffset(10, 8),
+    Size = UDim2.fromOffset(90, 14),
+    BackgroundTransparency = 1,
+    Font = Enum.Font.GothamBold,
+    TextSize = 9,
+    TextColor3 = Theme.muted,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    Text = "PREVIEW",
+    ZIndex = 2,
+}, cosPreview)
+
+local cosList = new("Frame", {
+    Position = UDim2.new(0.48, 4, 0, 8),
+    Size = UDim2.new(0.52, -12, 1, -16),
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+}, cosTop)
+new("UIListLayout", {
+    Padding = UDim.new(0, 6),
+    SortOrder = Enum.SortOrder.LayoutOrder,
+}, cosList)
+
+local function refreshCosCards()
+    for i, def in ipairs(COSMETIC_DEFS) do
+        local card = cosCards[i]
+        if card then
+            local cfg = Config.cosmetic[def.key]
+            local selected = Config.cosmetic.selected == i
+            card.btn.BackgroundColor3 = selected and Theme.accent or Theme.bg
+            card.btn.BackgroundTransparency = selected and 0.15 or 0.35
+            card.dot.BackgroundColor3 = cfg.color
+            card.name.TextColor3 = selected and Color3.new(1, 1, 1) or Theme.text
+            card.status.Text = cfg.enabled and "ON" or "OFF"
+            card.status.TextColor3 = cfg.enabled
+                and Color3.fromRGB(90, 230, 150)
+                or Theme.muted
+        end
+    end
+end
+
+for i, def in ipairs(COSMETIC_DEFS) do
+    local cfg = Config.cosmetic[def.key]
+    local btn = new("TextButton", {
+        Size = UDim2.new(1, 0, 0, 64),
+        BackgroundColor3 = Theme.bg,
+        BackgroundTransparency = 0.35,
+        AutoButtonColor = false,
+        Text = "",
+        BorderSizePixel = 0,
+        LayoutOrder = i,
+    }, cosList)
+    corner(btn, 10)
+    local dot = new("Frame", {
+        Position = UDim2.fromOffset(12, 12),
+        Size = UDim2.fromOffset(10, 10),
+        BackgroundColor3 = cfg.color,
+        BorderSizePixel = 0,
+    }, btn)
+    corner(dot, 5)
+    local name = new("TextLabel", {
+        Position = UDim2.fromOffset(30, 6),
+        Size = UDim2.new(1, -70, 0, 20),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.GothamBold,
+        TextSize = 12,
+        TextColor3 = Theme.text,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Text = def.label,
+    }, btn)
+    local desc = new("TextLabel", {
+        Position = UDim2.fromOffset(30, 24),
+        Size = UDim2.new(1, -40, 0, 16),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.GothamMedium,
+        TextSize = 9,
+        TextColor3 = Theme.muted,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Text = def.desc,
+    }, btn)
+    local status = new("TextLabel", {
+        Position = UDim2.new(1, -44, 0, 8),
+        Size = UDim2.fromOffset(34, 16),
+        BackgroundTransparency = 1,
+        Font = Enum.Font.GothamBold,
+        TextSize = 9,
+        TextColor3 = Theme.muted,
+        TextXAlignment = Enum.TextXAlignment.Right,
+        Text = cfg.enabled and "ON" or "OFF",
+    }, btn)
+    cosCards[i] = { btn = btn, dot = dot, name = name, status = status }
+    track(btn.Activated:Connect(function()
+        Config.cosmetic.selected = i
+        refreshCosCards()
+        renderCosControls()
+    end))
+end
+
+cosControls = new("Frame", {
+    Size = UDim2.new(1, 0, 0, 0),
+    AutomaticSize = Enum.AutomaticSize.Y,
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+}, pages.cosmetic)
+addOrder(pages.cosmetic, cosControls)
+new("UIListLayout", {
+    Padding = UDim.new(0, 6),
+    SortOrder = Enum.SortOrder.LayoutOrder,
+}, cosControls)
+
+renderCosControls = function()
+    for _, child in ipairs(cosControls:GetChildren()) do
+        if not child:IsA("UIListLayout") then
+            child:Destroy()
+        end
+    end
+    local def = COSMETIC_DEFS[Config.cosmetic.selected]
+    local cfg = Config.cosmetic[def.key]
+    section(cosControls, def.label)
+    toggleRow(cosControls, "Equip", cfg.enabled, function(v)
+        cfg.enabled = v
+        cosmeticRefresh()
+        refreshCosCards()
+    end)
+    colorPicker(cosControls, "Color", cfg, "color", function()
+        cosmeticRefresh()
+        refreshCosCards()
+    end)
+    sliderRow(cosControls, "Pos X", -3, 3, cfg.x, " stud", function(v)
+        cfg.x = v
+    end)
+    sliderRow(cosControls, "Pos Y", -3, 3, cfg.y, " stud", function(v)
+        cfg.y = v
+    end)
+    sliderRow(cosControls, "Pos Z", -3, 3, cfg.z, " stud", function(v)
+        cfg.z = v
+    end)
+    sliderRow(cosControls, "Scale", 1, 3, cfg.scale, "x", function(v)
+        cfg.scale = v
+        cosmeticRefresh()
+    end)
+    if def.key == "wings" then
+        sliderRow(cosControls, "Flap speed", 0, 360, cfg.spin, " deg/s", function(v)
+            cfg.spin = v
+        end)
+    else
+        sliderRow(cosControls, "Spin", 0, 360, cfg.spin, " deg/s", function(v)
+            cfg.spin = v
+        end)
+    end
+    note(cosControls,
+        "Chọn món bên trên, bật Equip rồi chỉnh vị trí / màu / scale. "
+        .. "Đồ hiện ngay trên nhân vật và mô hình preview.", 34)
+end
+
+refreshCosCards()
+renderCosControls()
+
+--// music hub
+musicGui = new("ScreenGui", {
+    Name = "BenchMusic",
+    ResetOnSpawn = false,
+    IgnoreGuiInset = true,
+    DisplayOrder = 65,
+    ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+}, parentGui())
+
+local hubW, hubH = 318, 128
+musicHub = new("Frame", {
+    Size = UDim2.fromOffset(hubW, hubH),
+    Position = UDim2.fromScale(Config.yt.hubX, Config.yt.hubY),
+    BackgroundColor3 = Theme.bg,
+    BackgroundTransparency = 0.08,
+    BorderSizePixel = 0,
+    Visible = Config.yt.hub,
+    ZIndex = 10,
+}, musicGui)
+corner(musicHub, 14)
+stroke(musicHub, Theme.stroke, 1)
+tint(musicHub, "BackgroundColor3", "bg")
+new("UIGradient", {
+    Color = ColorSequence.new(Color3.fromRGB(118, 70, 220), Theme.bg),
+    Rotation = 25,
+    Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.15),
+        NumberSequenceKeypoint.new(1, 0.68),
+    }),
+}, musicHub)
+
+local hubArt = new("Frame", {
+    Position = UDim2.fromOffset(10, 10),
+    Size = UDim2.fromOffset(74, 74),
+    BackgroundColor3 = Color3.fromRGB(118, 70, 220),
+    BorderSizePixel = 0,
+    ZIndex = 11,
+}, musicHub)
+corner(hubArt, 10)
+local hubArtGrad = new("UIGradient", {
+    Color = ColorSequence.new(
+        Color3.fromRGB(150, 95, 250),
+        Color3.fromRGB(78, 38, 160)
+    ),
+    Rotation = 45,
+}, hubArt)
+local hubArtLabel = new("TextLabel", {
+    Size = UDim2.fromScale(1, 1),
+    BackgroundTransparency = 1,
+    Font = Enum.Font.GothamBlack,
+    TextSize = 11,
+    TextColor3 = Color3.new(1, 1, 1),
+    Text = "MUSIC",
+    ZIndex = 12,
+}, hubArt)
+
+local hubNow = new("TextLabel", {
+    Position = UDim2.fromOffset(94, 9),
+    Size = UDim2.new(1, -104, 0, 12),
+    BackgroundTransparency = 1,
+    Font = Enum.Font.GothamBold,
+    TextSize = 8,
+    TextColor3 = Theme.muted,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    Text = "NOW PLAYING",
+}, musicHub)
+
+local hubTitle = new("TextLabel", {
+    Position = UDim2.fromOffset(94, 21),
+    Size = UDim2.new(1, -104, 0, 18),
+    BackgroundTransparency = 1,
+    Font = Enum.Font.SourceSansBold,
+    TextSize = 14,
+    TextColor3 = Theme.text,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    TextTruncate = Enum.TextTruncate.AtEnd,
+    Text = "Chưa có nhạc",
+}, musicHub)
+hubTitle:SetAttribute("noFontTheme", true)
+
+local hubArtist = new("TextLabel", {
+    Position = UDim2.fromOffset(94, 39),
+    Size = UDim2.new(1, -104, 0, 14),
+    BackgroundTransparency = 1,
+    Font = Enum.Font.SourceSans,
+    TextSize = 10,
+    TextColor3 = Theme.muted,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    TextTruncate = Enum.TextTruncate.AtEnd,
+    Text = "Thêm track ở tab YOUTUBE",
+}, musicHub)
+hubArtist:SetAttribute("noFontTheme", true)
+
+local hubPrev = new("TextButton", {
+    Position = UDim2.fromOffset(94, 58),
+    Size = UDim2.fromOffset(30, 24),
+    BackgroundTransparency = 1,
+    Font = Enum.Font.GothamBold,
+    TextSize = 10,
+    TextColor3 = Theme.muted,
+    Text = "◀◀",
+    AutoButtonColor = false,
+}, musicHub)
+tint(hubPrev, "TextColor3", "muted")
+
+local hubPlay = new("TextButton", {
+    Position = UDim2.fromOffset(128, 58),
+    Size = UDim2.fromOffset(34, 24),
+    BackgroundColor3 = Color3.fromRGB(118, 70, 220),
+    Font = Enum.Font.GothamBold,
+    TextSize = 10,
+    TextColor3 = Color3.new(1, 1, 1),
+    Text = "▶",
+    AutoButtonColor = false,
+    BorderSizePixel = 0,
+}, musicHub)
+corner(hubPlay, 8)
+
+local hubNext = new("TextButton", {
+    Position = UDim2.fromOffset(166, 58),
+    Size = UDim2.fromOffset(30, 24),
+    BackgroundTransparency = 1,
+    Font = Enum.Font.GothamBold,
+    TextSize = 10,
+    TextColor3 = Theme.muted,
+    Text = "▶▶",
+    AutoButtonColor = false,
+}, musicHub)
+tint(hubNext, "TextColor3", "muted")
+
+local hubTime = new("TextLabel", {
+    Position = UDim2.new(1, -120, 0, 60),
+    Size = UDim2.fromOffset(52, 16),
+    BackgroundTransparency = 1,
+    Font = Enum.Font.Code,
+    TextSize = 9,
+    TextColor3 = Theme.muted,
+    TextXAlignment = Enum.TextXAlignment.Right,
+    Text = "0:00",
+}, musicHub)
+tint(hubTime, "TextColor3", "muted")
+
+local hubTotal = new("TextLabel", {
+    Position = UDim2.new(1, -62, 0, 60),
+    Size = UDim2.fromOffset(52, 16),
+    BackgroundTransparency = 1,
+    Font = Enum.Font.Code,
+    TextSize = 9,
+    TextColor3 = Theme.muted,
+    TextXAlignment = Enum.TextXAlignment.Right,
+    Text = "0:00",
+}, musicHub)
+tint(hubTotal, "TextColor3", "muted")
+
+local hubBar = new("TextButton", {
+    Position = UDim2.fromOffset(94, 84),
+    Size = UDim2.new(1, -104, 0, 6),
+    BackgroundColor3 = Theme.bg2,
+    BorderSizePixel = 0,
+    Text = "",
+    AutoButtonColor = false,
+}, musicHub)
+corner(hubBar, 3)
+tint(hubBar, "BackgroundColor3", "bg2")
+local hubFill = new("Frame", {
+    Size = UDim2.new(0, 0, 1, 0),
+    BackgroundColor3 = Color3.fromRGB(80, 220, 140),
+    BorderSizePixel = 0,
+}, hubBar)
+corner(hubFill, 3)
+
+local hubLyric1 = new("TextLabel", {
+    Position = UDim2.fromOffset(94, 95),
+    Size = UDim2.new(1, -104, 0, 14),
+    BackgroundTransparency = 1,
+    Font = Enum.Font.SourceSansSemibold,
+    TextSize = 11,
+    TextColor3 = Color3.fromRGB(80, 220, 140),
+    TextXAlignment = Enum.TextXAlignment.Left,
+    TextTruncate = Enum.TextTruncate.AtEnd,
+    Text = "",
+}, musicHub)
+hubLyric1:SetAttribute("noFontTheme", true)
+
+local hubLyric2 = new("TextLabel", {
+    Position = UDim2.fromOffset(94, 109),
+    Size = UDim2.new(1, -104, 0, 13),
+    BackgroundTransparency = 1,
+    Font = Enum.Font.SourceSans,
+    TextSize = 10,
+    TextColor3 = Theme.muted,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    TextTruncate = Enum.TextTruncate.AtEnd,
+    Text = "",
+}, musicHub)
+hubLyric2:SetAttribute("noFontTheme", true)
+
+local hubDrag = new("TextButton", {
+    Size = UDim2.new(1, 0, 0, 24),
+    BackgroundTransparency = 1,
+    AutoButtonColor = false,
+    Text = "",
+    BorderSizePixel = 0,
+    ZIndex = 20,
+}, musicHub)
+
+applyHubPos = function()
+    local v = viewport()
+    local x = math.clamp((Config.yt.hubX or 0.62) * v.X, 0, math.max(0, v.X - hubW))
+    local y = math.clamp((Config.yt.hubY or 0.68) * v.Y, 0, math.max(0, v.Y - hubH))
+    musicHub.Position = UDim2.fromOffset(x, y)
+end
+if Config.yt.hub then
+    applyHubPos()
+end
+
+local hubDragging = false
+local hubStartInput = nil
+local hubStartPos = nil
+track(hubDrag.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+        hubDragging = true
+        hubStartInput = input.Position
+        hubStartPos = musicHub.AbsolutePosition
+    end
+end))
+track(UIS.InputChanged:Connect(function(input)
+    if not hubDragging then
+        return
+    end
+    if input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch then
+        local d = input.Position - hubStartInput
+        musicHub.Position = UDim2.fromOffset(
+            hubStartPos.X + d.X,
+            hubStartPos.Y + d.Y
+        )
+    end
+end))
+track(UIS.InputEnded:Connect(function(input)
+    if not hubDragging then
+        return
+    end
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+        hubDragging = false
+        local v = viewport()
+        local x = math.clamp(musicHub.AbsolutePosition.X, 0, math.max(0, v.X - hubW))
+        local y = math.clamp(musicHub.AbsolutePosition.Y, 0, math.max(0, v.Y - hubH))
+        musicHub.Position = UDim2.fromOffset(x, y)
+        Config.yt.hubX = x / math.max(v.X, 1)
+        Config.yt.hubY = y / math.max(v.Y, 1)
+    end
+end))
+
+track(hubPrev.Activated:Connect(function()
+    if ytPrev then
+        ytPrev()
+    end
+end))
+track(hubPlay.Activated:Connect(function()
+    if ytTogglePlay then
+        ytTogglePlay()
+    end
+end))
+track(hubNext.Activated:Connect(function()
+    if ytNext then
+        ytNext()
+    end
+end))
+track(hubBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+        local a = math.clamp(
+            (input.Position.X - hubBar.AbsolutePosition.X)
+                / math.max(hubBar.AbsoluteSize.X, 1),
+            0,
+            1
+        )
+        if ytSeek then
+            ytSeek(a)
+        end
+    end
+end))
+
+local toastLabel = new("TextLabel", {
+    AnchorPoint = Vector2.new(0.5, 1),
+    Position = UDim2.new(0.5, 0, 1, -24),
+    Size = UDim2.fromOffset(286, 30),
+    BackgroundColor3 = Theme.bg,
+    BackgroundTransparency = 0.1,
+    BorderSizePixel = 0,
+    Font = Enum.Font.SourceSansSemibold,
+    TextSize = 11,
+    TextColor3 = Theme.text,
+    TextWrapped = true,
+    Text = "",
+    Visible = false,
+    ZIndex = 30,
+}, musicGui)
+corner(toastLabel, 10)
+stroke(toastLabel, Theme.stroke, 1)
+tint(toastLabel, "BackgroundColor3", "bg")
+tint(toastLabel, "TextColor3", "text")
+toastLabel:SetAttribute("noFontTheme", true)
+
+local toastToken = 0
+local function toast(text)
+    if not benchAlive or not toastLabel or not toastLabel.Parent then
+        return
+    end
+    toastToken = toastToken + 1
+    local my = toastToken
+    toastLabel.Text = text
+    toastLabel.Visible = true
+    task.delay(2.6, function()
+        if toastToken == my then
+            toastLabel.Visible = false
+        end
+    end)
+end
+
+local function openUrl(url)
+    local fn = execEnv.openbrowser or execEnv.openBrowser
+        or execEnv.open_url or execEnv.openUrl
+    if type(fn) == "function" then
+        local ok = pcall(fn, url)
+        if ok then
+            toast("Đã mở trình duyệt.")
+            return
+        end
+    end
+    local ok = pcall(function()
+        game:GetService("GuiService"):OpenBrowserWindow(url)
+    end)
+    if ok then
+        toast("Đã mở trình duyệt.")
+        return
+    end
+    if copyToClipboard(url) then
+        toast("Đã copy link — dán vào trình duyệt.")
+    else
+        toast("Link: " .. url)
+    end
+end
+
+--// youtube page
+section(pages.youtube, "youtube")
+note(pages.youtube,
+    "Tìm video công khai, không cần đăng nhập. Roblox không nhúng được web thật — "
+    .. "bấm kết quả để mở hoặc copy link sang trình duyệt.", 44)
+
+local ytSearchRow = new("Frame", {
+    Size = UDim2.new(1, 0, 0, 36),
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+}, pages.youtube)
+addOrder(pages.youtube, ytSearchRow)
+
+local ytQuery = new("TextBox", {
+    Size = UDim2.new(1, -78, 0, 32),
+    Position = UDim2.fromOffset(0, 2),
+    BackgroundColor3 = Theme.bg2,
+    Font = Enum.Font.SourceSans,
+    TextSize = 12,
+    TextColor3 = Theme.text,
+    PlaceholderText = "Tìm video YouTube...",
+    PlaceholderColor3 = Theme.muted,
+    Text = "",
+    ClearTextOnFocus = false,
+    BorderSizePixel = 0,
+}, ytSearchRow)
+corner(ytQuery, 8)
+tint(ytQuery, "BackgroundColor3", "bg2")
+tint(ytQuery, "TextColor3", "text")
+ytQuery:SetAttribute("noFontTheme", true)
+
+local ytSearchBtn = new("TextButton", {
+    Size = UDim2.fromOffset(70, 32),
+    Position = UDim2.new(1, -70, 0, 2),
+    BackgroundColor3 = Theme.accent,
+    AutoButtonColor = false,
+    Font = Enum.Font.GothamBold,
+    TextSize = 10,
+    TextColor3 = Color3.new(1, 1, 1),
+    Text = "SEARCH",
+    BorderSizePixel = 0,
+}, ytSearchRow)
+corner(ytSearchBtn, 8)
+tint(ytSearchBtn, "BackgroundColor3", "accent")
+track(ytSearchBtn.Activated:Connect(function()
+    if ytDoSearch then
+        ytDoSearch()
+    end
+end))
+track(ytQuery.FocusLost:Connect(function(enterPressed)
+    if enterPressed and ytDoSearch then
+        ytDoSearch()
+    end
+end))
+
+local ytStatus = new("TextLabel", {
+    Size = UDim2.new(1, 0, 0, 16),
+    BackgroundTransparency = 1,
+    Font = Enum.Font.SourceSans,
+    TextSize = 10,
+    TextColor3 = Theme.muted,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    Text = "Nhập từ khóa rồi bấm SEARCH.",
+}, pages.youtube)
+addOrder(pages.youtube, ytStatus)
+ytStatus:SetAttribute("noFontTheme", true)
+
+local ytResults = new("ScrollingFrame", {
+    Size = UDim2.new(1, 0, 0, 168),
+    BackgroundColor3 = Theme.bg2,
+    BackgroundTransparency = 0.35,
+    BorderSizePixel = 0,
+    CanvasSize = UDim2.new(0, 0, 0, 0),
+    AutomaticCanvasSize = Enum.AutomaticSize.Y,
+    ScrollingDirection = Enum.ScrollingDirection.Y,
+    ScrollBarThickness = 2,
+    ScrollBarImageColor3 = Theme.muted,
+    ScrollBarImageTransparency = 0.4,
+}, pages.youtube)
+corner(ytResults, 10)
+tint(ytResults, "BackgroundColor3", "bg2")
+addOrder(pages.youtube, ytResults)
+new("UIListLayout", {
+    Padding = UDim.new(0, 4),
+    SortOrder = Enum.SortOrder.LayoutOrder,
+}, ytResults)
+new("TextLabel", {
+    Size = UDim2.new(1, 0, 0, 30),
+    BackgroundTransparency = 1,
+    Font = Enum.Font.SourceSans,
+    TextSize = 10,
+    TextColor3 = Theme.muted,
+    Text = "Chưa có kết quả.",
+}, ytResults)
+
+buttonRow(pages.youtube, "OPEN YOUTUBE", Theme.bg2, function()
+    openUrl("https://www.youtube.com")
+end)
+
+buttonRow(pages.youtube, "OPEN SEARCH IN BROWSER", Theme.bg2, function()
+    local q = ytQuery.Text:gsub("^%s+", ""):gsub("%s+$", "")
+    if q == "" then
+        openUrl("https://www.youtube.com")
+        return
+    end
+    local ok, encoded = pcall(function()
+        return HttpService:UrlEncode(q)
+    end)
+    if not ok or type(encoded) ~= "string" then
+        encoded = q:gsub(" ", "+")
+    end
+    openUrl("https://www.youtube.com/results?search_query=" .. encoded)
+end)
+
+local ytHubGroup = collapsible(pages.youtube, "music hub", true)
+toggleRow(ytHubGroup, "Music hub", Config.yt.hub, function(v)
+    Config.yt.hub = v
+    if musicHub then
+        musicHub.Visible = v
+        if v then
+            applyHubPos()
+        end
+    end
+end)
+sliderRow(ytHubGroup, "Volume", 0, 100, Config.yt.volume, "%", function(v)
+    Config.yt.volume = v
+    if hubSound then
+        hubSound.Volume = v / 100
+    end
+end)
+buttonRow(ytHubGroup, "RESET HUB POSITION", Theme.bg2, function()
+    Config.yt.hubX = 0.62
+    Config.yt.hubY = 0.68
+    if musicHub and Config.yt.hub then
+        applyHubPos()
+    end
+end)
+note(ytHubGroup,
+    "Kéo HUB nhạc để đổi vị trí. Lyric hiện theo timestamp LRC khi thêm track.", 30)
+
+local ytListGroup = collapsible(pages.youtube, "playlist", true)
+local ytList = new("Frame", {
+    Size = UDim2.new(1, 0, 0, 0),
+    AutomaticSize = Enum.AutomaticSize.Y,
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+}, ytListGroup)
+addOrder(ytListGroup, ytList)
+new("UIListLayout", {
+    Padding = UDim.new(0, 4),
+    SortOrder = Enum.SortOrder.LayoutOrder,
+}, ytList)
+
+ytRefreshPlaylist = function()
+    for _, child in ipairs(ytList:GetChildren()) do
+        if not child:IsA("UIListLayout") then
+            child:Destroy()
+        end
+    end
+    if #Config.yt.tracks == 0 then
+        local empty = new("TextLabel", {
+            Size = UDim2.new(1, 0, 0, 28),
+            BackgroundTransparency = 1,
+            Font = Enum.Font.SourceSans,
+            TextSize = 10,
+            TextColor3 = Theme.muted,
+            Text = "Chưa có track — thêm bên dưới.",
+        }, ytList)
+        empty:SetAttribute("noFontTheme", true)
+        return
+    end
+    for i, song in ipairs(Config.yt.tracks) do
+        local active = Config.yt.index == i
+        local row = new("Frame", {
+            Size = UDim2.new(1, 0, 0, 34),
+            BackgroundColor3 = active and Theme.accent or Theme.bg2,
+            BackgroundTransparency = active and 0.25 or 0.45,
+            BorderSizePixel = 0,
+            LayoutOrder = i,
+        }, ytList)
+        corner(row, 8)
+        local play = new("TextButton", {
+            Size = UDim2.new(1, -30, 1, 0),
+            BackgroundTransparency = 1,
+            AutoButtonColor = false,
+            Text = "",
+            BorderSizePixel = 0,
+        }, row)
+        local name = new("TextLabel", {
+            Position = UDim2.fromOffset(8, 1),
+            Size = UDim2.new(1, -16, 0, 16),
+            BackgroundTransparency = 1,
+            Font = Enum.Font.SourceSansSemibold,
+            TextSize = 11,
+            TextColor3 = Theme.text,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+            Text = song.title or "Untitled",
+        }, play)
+        name:SetAttribute("noFontTheme", true)
+        local meta = new("TextLabel", {
+            Position = UDim2.fromOffset(8, 16),
+            Size = UDim2.new(1, -16, 0, 14),
+            BackgroundTransparency = 1,
+            Font = Enum.Font.SourceSans,
+            TextSize = 9,
+            TextColor3 = Theme.muted,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+            Text = (song.artist or "?")
+                .. ((song.id and song.id ~= "") and " · audio" or " · chưa có audio"),
+        }, play)
+        meta:SetAttribute("noFontTheme", true)
+        track(play.Activated:Connect(function()
+            if ytPlay then
+                ytPlay(i)
+            end
+        end))
+        local del = new("TextButton", {
+            Position = UDim2.new(1, -28, 0, 4),
+            Size = UDim2.fromOffset(24, 26),
+            BackgroundTransparency = 1,
+            Font = Enum.Font.GothamBold,
+            TextSize = 14,
+            TextColor3 = Theme.muted,
+            Text = "×",
+            AutoButtonColor = false,
+        }, row)
+        track(del.Activated:Connect(function()
+            if ytDeleteTrack then
+                ytDeleteTrack(i)
+            end
+        end))
+    end
+end
+ytRefreshPlaylist()
+
+local ytAddGroup = collapsible(pages.youtube, "add track", false)
+local function ytField(placeholder, height)
+    local box = new("TextBox", {
+        Size = UDim2.new(1, 0, 0, height),
+        BackgroundColor3 = Theme.bg2,
+        Font = Enum.Font.SourceSans,
+        TextSize = 11,
+        TextColor3 = Theme.text,
+        PlaceholderText = placeholder,
+        PlaceholderColor3 = Theme.muted,
+        Text = "",
+        TextWrapped = true,
+        MultiLine = height > 36,
+        ClearTextOnFocus = false,
+        BorderSizePixel = 0,
+    }, ytAddGroup)
+    corner(box, 8)
+    tint(box, "BackgroundColor3", "bg2")
+    tint(box, "TextColor3", "text")
+    box:SetAttribute("noFontTheme", true)
+    addOrder(ytAddGroup, box)
+    return box
+end
+
+local ytAddId = ytField("Audio id (rbxassetid / số)", 32)
+local ytAddTitle = ytField("Tên bài", 32)
+local ytAddArtist = ytField("Ca sĩ", 32)
+local ytAddLyrics = ytField("Lyric (LRC: [00:12.00] câu hát)", 64)
+buttonRow(ytAddGroup, "ADD TO QUEUE", Theme.bg2, function()
+    if ytAddTrack then
+        ytAddTrack({
+            id = ytAddId.Text,
+            title = ytAddTitle.Text,
+            artist = ytAddArtist.Text,
+            lyrics = ytAddLyrics.Text,
+        })
+        ytAddId.Text = ""
+        ytAddTitle.Text = ""
+        ytAddArtist.Text = ""
+        ytAddLyrics.Text = ""
+    end
+end)
+note(ytAddGroup,
+    "Roblox không stream YouTube trực tiếp. Dán audio ID Roblox (bài bạn có quyền dùng) "
+    .. "để HUB phát; lyric dán dạng LRC hoặc mỗi dòng một câu.", 44)
+
+
+
+--// music controls
+local function fmtTime(sec)
+    sec = math.max(0, math.floor(tonumber(sec) or 0))
+    return string.format("%d:%02d", math.floor(sec / 60), sec % 60)
+end
+
+local function normalizeAudioId(raw)
+    local text = tostring(raw or "")
+    text = text:gsub("%s", "")
+    if text == "" then
+        return ""
+    end
+    text = text:gsub("rbxassetid://", "")
+    text = text:gsub("rbxassetid:", "")
+    local digits = text:match("(%d+)")
+    if digits then
+        return "rbxassetid://" .. digits
+    end
+    return ""
+end
+
+local function currentSong()
+    return Config.yt.tracks[Config.yt.index]
+end
+
+local lyricCache = { index = -1, text = "", lines = {} }
+
+local function parseLyrics(text)
+    local lines = {}
+    for raw in tostring(text or ""):gmatch("[^\r\n]+") do
+        local mm, ss, frac, body = raw:match("^%s*%[(%d+):(%d+)%.?(%d*)%]%s*(.*)$")
+        if mm then
+            local t = tonumber(mm) * 60 + tonumber(ss)
+            if frac and frac ~= "" then
+                t = t + (tonumber("0." .. frac) or 0)
+            end
+            lines[#lines + 1] = { t = t, text = body }
+        else
+            local clean = raw:gsub("^%s+", ""):gsub("%s+$", "")
+            if clean ~= "" then
+                lines[#lines + 1] = { t = nil, text = clean }
+            end
+        end
+    end
+    local last = 0
+    for _, line in ipairs(lines) do
+        if line.t then
+            last = line.t
+        else
+            line.t = last + 6
+            last = line.t
+        end
+    end
+    table.sort(lines, function(a, b)
+        return a.t < b.t
+    end)
+    return lines
+end
+
+ytUpdateHub = function()
+    if not benchAlive then
+        return
+    end
+    local song = currentSong()
+    hubTitle.Text = (song and song.title ~= "" and song.title) or "Chưa có nhạc"
+    hubArtist.Text = (song and song.artist ~= "" and song.artist) or "Thêm track ở tab YOUTUBE"
+
+    local length = 0
+    local pos = 0
+    if hubSound then
+        length = hubSound.TimeLength or 0
+        pos = hubSound.TimePosition or 0
+    end
+    hubTime.Text = fmtTime(pos)
+    hubTotal.Text = fmtTime(length)
+    local alpha = 0
+    if length > 0 then
+        alpha = math.clamp(pos / length, 0, 1)
+    end
+    hubFill.Size = UDim2.new(alpha, 0, 1, 0)
+    hubPlay.Text = (hubSound and hubSound.IsPlaying) and "II" or "▶"
+
+    local lyrics = song and song.lyrics or ""
+    if lyricCache.index ~= Config.yt.index or lyricCache.text ~= lyrics then
+        lyricCache.index = Config.yt.index
+        lyricCache.text = lyrics
+        lyricCache.lines = parseLyrics(lyrics)
+    end
+
+    local cur, nxt
+    for i, line in ipairs(lyricCache.lines) do
+        if line.t <= pos + 0.05 then
+            cur = line
+            nxt = lyricCache.lines[i + 1]
+        else
+            break
+        end
+    end
+    if not cur then
+        cur = lyricCache.lines[1]
+        nxt = lyricCache.lines[2]
+    end
+    if cur then
+        hubLyric1.Text = cur.text
+        hubLyric2.Text = nxt and nxt.text or ""
+    elseif song then
+        hubLyric1.Text = "Chưa có lyric — dán LRC ở tab YOUTUBE."
+        hubLyric2.Text = ""
+    else
+        hubLyric1.Text = ""
+        hubLyric2.Text = ""
+    end
+end
+
+ytPlay = function(i)
+    if not benchAlive then
+        return
+    end
+    local n = #Config.yt.tracks
+    if n == 0 then
+        toast("Playlist trống — thêm track trước.")
+        return
+    end
+    i = math.clamp(tonumber(i) or 1, 1, n)
+    Config.yt.index = i
+    local song = Config.yt.tracks[i]
+    local id = normalizeAudioId(song.id)
+    if hubSound then
+        pcall(function()
+            hubSound:Stop()
+        end)
+        if id ~= "" then
+            hubSound.SoundId = id
+            hubSound.Volume = Config.yt.volume / 100
+            pcall(function()
+                hubSound:Play()
+            end)
+        else
+            hubSound.SoundId = ""
+        end
+    end
+    task.spawn(function()
+        ytRefreshPlaylist()
+    end)
+    ytUpdateHub()
+    if id == "" then
+        toast("Track chưa có audio ID — HUB chỉ hiện lyric.")
+    end
+    saveSettings()
+end
+
+ytTogglePlay = function()
+    if not benchAlive then
+        return
+    end
+    local song = currentSong()
+    if not song or normalizeAudioId(song.id) == "" then
+        toast("Chưa có audio ID Roblox cho track này.")
+        return
+    end
+    if not hubSound then
+        return
+    end
+    local id = normalizeAudioId(song.id)
+    if hubSound.SoundId ~= id then
+        hubSound.SoundId = id
+        hubSound.TimePosition = 0
+    end
+    if hubSound.IsPlaying then
+        hubSound:Pause()
+    else
+        if hubSound.TimeLength > 0 and hubSound.TimePosition >= hubSound.TimeLength - 0.05 then
+            hubSound.TimePosition = 0
+        end
+        pcall(function()
+            hubSound:Play()
+        end)
+    end
+    ytUpdateHub()
+end
+
+ytNext = function()
+    if not benchAlive then
+        return
+    end
+    local n = #Config.yt.tracks
+    if n == 0 then
+        return
+    end
+    ytPlay((Config.yt.index % n) + 1)
+end
+
+ytPrev = function()
+    if not benchAlive then
+        return
+    end
+    local n = #Config.yt.tracks
+    if n == 0 then
+        return
+    end
+    ytPlay(((Config.yt.index - 2) % n) + 1)
+end
+
+ytSeek = function(alpha)
+    if not benchAlive then
+        return
+    end
+    if not hubSound or hubSound.TimeLength <= 0 then
+        toast("Chưa có audio để tua.")
+        return
+    end
+    hubSound.TimePosition = math.clamp(alpha, 0, 1) * hubSound.TimeLength
+    ytUpdateHub()
+end
+
+ytAddTrack = function(t)
+    if not benchAlive or type(t) ~= "table" then
+        return
+    end
+    local title = tostring(t.title or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    if title == "" then
+        title = "Untitled"
+    end
+    local wasEmpty = #Config.yt.tracks == 0
+    Config.yt.tracks[#Config.yt.tracks + 1] = {
+        id = normalizeAudioId(t.id),
+        title = title,
+        artist = tostring(t.artist or ""),
+        lyrics = tostring(t.lyrics or ""),
+    }
+    if wasEmpty then
+        Config.yt.index = 1
+    end
+    ytRefreshPlaylist()
+    ytUpdateHub()
+    toast("Đã thêm: " .. title)
+    saveSettings()
+end
+
+ytDeleteTrack = function(i)
+    if not benchAlive or not Config.yt.tracks[i] then
+        return
+    end
+    local wasCurrent = Config.yt.index == i
+    if i < Config.yt.index then
+        Config.yt.index = Config.yt.index - 1
+    end
+    table.remove(Config.yt.tracks, i)
+    if #Config.yt.tracks == 0 then
+        Config.yt.index = 1
+    elseif Config.yt.index > #Config.yt.tracks then
+        Config.yt.index = #Config.yt.tracks
+    end
+    if wasCurrent and hubSound then
+        pcall(function()
+            hubSound:Stop()
+        end)
+        hubSound.SoundId = ""
+    end
+    ytRefreshPlaylist()
+    ytUpdateHub()
+    saveSettings()
+end
+
+local function httpGet(url)
+    local fn = execEnv.httpget or execEnv.HttpGet
+    if type(fn) ~= "function" and type(httpget) == "function" then
+        fn = httpget
+    end
+    if type(fn) ~= "function" and type(http_request) == "function" then
+        fn = http_request
+    end
+    if type(fn) ~= "function" and game then
+        fn = game.HttpGet
+    end
+    if type(fn) == "function" then
+        local ok, body = pcall(fn, url)
+        if ok then
+            if type(body) == "table" then
+                body = body.Body or body.body
+            end
+            if type(body) == "string" and body ~= "" then
+                return body
+            end
+        end
+    end
+    local ok, body = pcall(function()
+        return HttpService:GetAsync(url, true)
+    end)
+    if ok and type(body) == "string" and body ~= "" then
+        return body
+    end
+    return nil
+end
+
+local INVIDIOUS = {
+    "https://inv.nadeko.net",
+    "https://invidious.nerdvpn.de",
+    "https://yewtu.be",
+    "https://iv.melmac.space",
+    "https://invidious.f5.si",
+}
+
+ytDoSearch = function()
+    local query = ytQuery.Text
+    query = query:gsub("^%s+", ""):gsub("%s+$", "")
+    if query == "" then
+        toast("Nhập từ khóa trước.")
+        return
+    end
+    for _, child in ipairs(ytResults:GetChildren()) do
+        if not child:IsA("UIListLayout") then
+            child:Destroy()
+        end
+    end
+    ytStatus.Text = "Đang tìm \"" .. query .. "\"..."
+    task.spawn(function()
+        local results = nil
+        local encoded = query
+        local okEnc, enc = pcall(function()
+            return HttpService:UrlEncode(query)
+        end)
+        if okEnc and type(enc) == "string" then
+            encoded = enc
+        else
+            encoded = query:gsub(" ", "+")
+        end
+
+        for _, base in ipairs(INVIDIOUS) do
+            if not benchAlive then
+                return
+            end
+            local url = base .. "/api/v1/search?q=" .. encoded .. "&type=video"
+            local body = httpGet(url)
+            if body then
+                local ok, decoded = pcall(HttpService.JSONDecode, HttpService, body)
+                if ok and type(decoded) == "table" and type(decoded[1]) == "table" then
+                    results = decoded
+                    break
+                end
+            end
+        end
+
+        if not benchAlive then
+            return
+        end
+        if not results or #results == 0 then
+            ytStatus.Text = "Không tìm được. Thử từ khóa khác hoặc mở YouTube."
+            toast("Search thất bại — instance công khai có thể đang chặn.")
+            return
+        end
+        ytStatus.Text = string.format("Tìm thấy %d kết quả — bấm để mở.", #results)
+        for i, item in ipairs(results) do
+            local row = new("Frame", {
+                Size = UDim2.new(1, 0, 0, 46),
+                BackgroundColor3 = Theme.bg,
+                BackgroundTransparency = 0.45,
+                BorderSizePixel = 0,
+                LayoutOrder = i,
+            }, ytResults)
+            corner(row, 8)
+            local open = new("TextButton", {
+                Size = UDim2.new(1, -34, 1, 0),
+                BackgroundTransparency = 1,
+                AutoButtonColor = false,
+                Text = "",
+                BorderSizePixel = 0,
+            }, row)
+            local title = new("TextLabel", {
+                Position = UDim2.fromOffset(8, 3),
+                Size = UDim2.new(1, -16, 0, 22),
+                BackgroundTransparency = 1,
+                Font = Enum.Font.SourceSansSemibold,
+                TextSize = 11,
+                TextColor3 = Theme.text,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                TextTruncate = Enum.TextTruncate.AtEnd,
+                Text = tostring(item.title or "Untitled"),
+            }, open)
+            title:SetAttribute("noFontTheme", true)
+            local meta = new("TextLabel", {
+                Position = UDim2.fromOffset(8, 24),
+                Size = UDim2.new(1, -16, 0, 16),
+                BackgroundTransparency = 1,
+                Font = Enum.Font.SourceSans,
+                TextSize = 9,
+                TextColor3 = Theme.muted,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                TextTruncate = Enum.TextTruncate.AtEnd,
+                Text = tostring(item.author or "?") .. " · " .. fmtTime(item.lengthSeconds),
+            }, open)
+            meta:SetAttribute("noFontTheme", true)
+            track(open.Activated:Connect(function()
+                local vid = tostring(item.videoId or "")
+                if vid ~= "" then
+                    openUrl("https://youtu.be/" .. vid)
+                end
+            end))
+            local add = new("TextButton", {
+                Position = UDim2.new(1, -28, 0, 10),
+                Size = UDim2.fromOffset(24, 26),
+                BackgroundColor3 = Theme.accent,
+                BackgroundTransparency = 0.2,
+                AutoButtonColor = false,
+                Font = Enum.Font.GothamBold,
+                TextSize = 14,
+                TextColor3 = Color3.new(1, 1, 1),
+                Text = "+",
+                BorderSizePixel = 0,
+            }, row)
+            corner(add, 8)
+            track(add.Activated:Connect(function()
+                if ytAddTrack then
+                    ytAddTrack({
+                        id = "",
+                        title = tostring(item.title or "Untitled"),
+                        artist = tostring(item.author or ""),
+                        lyrics = "",
+                    })
+                end
+            end))
+        end
+    end)
+end
+
+ytUpdateHub()
+
+ui.cosPreview = cosPreview
+ui.cosPreviewCam = cosPreviewCam
+ui.audioId = normalizeAudioId
+ui.refreshCosCards = refreshCosCards
+ui.renderCosControls = renderCosControls
+ui.hubArtGrad = hubArtGrad
+ui.ytNext = ytNext
+ui.ytTogglePlay = ytTogglePlay
+ui.toast = toast
+end
 
 --// GUI page
 section(pages.gui, "custom gui")
@@ -1363,6 +3045,86 @@ buttonRow(pages.gui, "RESET GUI", Color3.fromRGB(40, 32, 20), function()
     applyTheme()
 end)
 
+local backupGroup = collapsible(pages.gui, "settings backup", false)
+note(backupGroup,
+    "Tự động lưu mỗi 5 giây và khi unload. File BenchUI_settings.json nằm trong "
+    .. "thư mục executor; nếu executor không có writefile thì lưu vào getgenv(). "
+    .. "Bấm EXPORT rồi copy JSON để backup thủ công. Sau khi IMPORT, chạy lại "
+    .. "script để đồng bộ toàn bộ slider / toggle.", 58)
+
+local backupBox = new("TextBox", {
+    Size = UDim2.new(1, 0, 0, 92),
+    BackgroundColor3 = Theme.bg2,
+    Font = Enum.Font.Code,
+    TextSize = 9,
+    TextColor3 = Theme.text,
+    PlaceholderText = "Dán JSON settings vào đây rồi bấm IMPORT...",
+    PlaceholderColor3 = Theme.muted,
+    Text = "",
+    TextWrapped = true,
+    MultiLine = true,
+    ClearTextOnFocus = false,
+    BorderSizePixel = 0,
+}, backupGroup)
+corner(backupBox, 8)
+tint(backupBox, "BackgroundColor3", "bg2")
+tint(backupBox, "TextColor3", "text")
+backupBox:SetAttribute("noFontTheme", true)
+addOrder(backupGroup, backupBox)
+
+buttonRow(backupGroup, "EXPORT TO BOX + COPY", Theme.bg2, function()
+    local encoded = saveSettings()
+    if encoded then
+        backupBox.Text = encoded
+        if copyToClipboard(encoded) then
+            if ui.toast then
+                ui.toast("Đã export và copy settings.")
+            end
+        elseif ui.toast then
+            ui.toast("Đã export — copy từ ô JSON.")
+        end
+    elseif ui.toast then
+        ui.toast("Không encode được settings.")
+    end
+end)
+
+buttonRow(backupGroup, "IMPORT FROM BOX", Theme.bg2, function()
+    local raw = backupBox.Text
+    if raw == "" then
+        if ui.toast then
+            ui.toast("Ô JSON đang trống.")
+        end
+        return
+    end
+    local ok, data = pcall(function()
+        return HttpService:JSONDecode(raw)
+    end)
+    if ok and type(data) == "table" then
+        local okApply, applied = pcall(applySettingsData, data)
+        if okApply and applied then
+            if ui.toast then
+                ui.toast("Đã khôi phục settings.")
+            end
+        elseif ui.toast then
+            ui.toast("Settings không hợp lệ.")
+        end
+    elseif ui.toast then
+        ui.toast("JSON không hợp lệ.")
+    end
+end)
+
+buttonRow(backupGroup, "COPY CURRENT SETTINGS", Theme.bg2, function()
+    local encoded = saveSettings()
+    if encoded and copyToClipboard(encoded) then
+        if ui.toast then
+            ui.toast("Đã copy settings.")
+        end
+    elseif ui.toast then
+        ui.toast("Executor không hỗ trợ clipboard — dùng EXPORT.")
+    end
+end)
+
+
 --// theme application
 applyTheme = function()
     syncTheme()
@@ -1380,7 +3142,8 @@ applyTheme = function()
     panel.BackgroundTransparency = Config.gui.transparency
 
     for _, d in ipairs(gui:GetDescendants()) do
-        if d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox") then
+        if (d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox"))
+            and not d:GetAttribute("noFontTheme") then
             pcall(function()
                 d.Font = FONTS[Config.gui.font].font
             end)
@@ -1421,6 +3184,28 @@ applyTheme = function()
         if entry.swatch and entry.swatch.Parent then
             entry.swatch.BackgroundColor3 = entry.target[entry.field]
         end
+    end
+
+    if musicHub then
+        local musicGrad = musicHub:FindFirstChildOfClass("UIGradient")
+        if musicGrad then
+            musicGrad.Color = ColorSequence.new(
+                Color3.fromRGB(118, 70, 220),
+                Theme.bg
+            )
+        end
+    end
+    if ui.hubArtGrad then
+        ui.hubArtGrad.Color = ColorSequence.new(
+            Color3.fromRGB(150, 95, 250),
+            Color3.fromRGB(78, 38, 160)
+        )
+    end
+    if ui.refreshCosCards then
+        pcall(ui.refreshCosCards)
+    end
+    if ytRefreshPlaylist then
+        pcall(ytRefreshPlaylist)
     end
 
     selectTab(activeTab)
@@ -1870,6 +3655,19 @@ local reticleDot = new("Frame", {
 }, reticle)
 corner(reticleDot, 2)
 
+local reticleDots = {}
+for i = 1, 3 do
+    local dot = new("Frame", {
+        Size = UDim2.fromOffset(4, 4),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromOffset(26, 26),
+        BackgroundColor3 = Config.esp.targetColor,
+        BorderSizePixel = 0,
+    }, reticle)
+    corner(dot, 2)
+    reticleDots[i] = dot
+end
+
 local pulseRing = new("Frame", {
     AnchorPoint = Vector2.new(0.5, 0.5),
     Size = UDim2.fromOffset(40, 40),
@@ -1917,7 +3715,15 @@ local function updateTargetFx()
         if Config.esp.reticle and sp.Z > 0 then
             reticle.Visible = true
             reticle.Position = UDim2.fromOffset(sp.X, sp.Y)
-            reticle.Rotation = (tick() * 60) % 360
+            local spin = Config.esp.targetSpin or 0
+            reticle.Rotation = (tick() * spin) % 360
+            for i, dot in ipairs(reticleDots) do
+                local ang = tick() * spin * 1.7 + (i - 1) * (math.pi * 2 / 3)
+                dot.Position = UDim2.fromOffset(
+                    26 + math.cos(ang) * 21,
+                    26 + math.sin(ang) * 21
+                )
+            end
             reticleScale.Scale = 0.92 + 0.1 * math.sin(tick() * 7)
             for _, child in ipairs(reticle:GetChildren()) do
                 if child:IsA("Frame") then
@@ -3628,6 +5434,576 @@ local function updateOrbit(dt)
     end
 end
 
+
+--// cosmetic engine + music player
+local function initCosmeticsAndMusic()
+    local COS_KEYS = { "hat", "wings", "crown" }
+    local cosFolder = new("Folder", { Name = "BenchCosmetics" }, fxFolder)
+    local worldModels = {}
+    local previewWorld = nil
+    local previewChar = nil
+    local previewModels = {}
+    local previewAngles = {}
+    local previewSpin = 0
+    local previewRing = nil
+    local saveAcc = 0
+
+    local function addCosPart(model, parts, size, offset, color, transparency, shape, extra)
+        local props = {
+            Size = size,
+            CFrame = offset,
+            Anchored = true,
+            CanCollide = false,
+            CanQuery = false,
+            CanTouch = false,
+            CastShadow = false,
+            Material = Enum.Material.Neon,
+            Color = color,
+            Transparency = transparency or 0,
+        }
+        if shape then
+            props.Shape = shape
+        end
+        local part = new("Part", props, model)
+        local item = {
+            part = part,
+            size = size,
+            offset = offset,
+            baseTrans = transparency or 0,
+            kind = (extra and extra.kind) or "static",
+            side = (extra and extra.side) or 1,
+            radius = (extra and extra.radius) or 0,
+            y = (extra and extra.y) or 0,
+            angle = (extra and extra.angle) or 0,
+            lerp = (extra and extra.lerp) or 0,
+        }
+        parts[#parts + 1] = item
+        return part
+    end
+
+    local function buildHat(parent, color)
+        local model = new("Model", { Name = "CosHat" }, parent)
+        local parts = {}
+        local function add(size, off, trans, shape, extra)
+            return addCosPart(model, parts, size, off, color, trans, shape, extra)
+        end
+
+        add(
+            Vector3.new(0.14, 2.8, 2.8),
+            CFrame.Angles(0, 0, math.rad(90)),
+            0.28,
+            Enum.PartType.Cylinder
+        )
+        add(
+            Vector3.new(0.08, 2.2, 2.2),
+            CFrame.new(0, 0.09, 0) * CFrame.Angles(0, 0, math.rad(90)),
+            0.12,
+            Enum.PartType.Cylinder
+        )
+
+        local tiers = {
+            { 0.34, 2.05 },
+            { 0.30, 1.65 },
+            { 0.26, 1.25 },
+            { 0.22, 0.85 },
+            { 0.18, 0.45 },
+        }
+        local y = 0.06
+        for _, tier in ipairs(tiers) do
+            add(
+                Vector3.new(tier[1], tier[2], tier[2]),
+                CFrame.new(0, y + tier[1] * 0.5, 0) * CFrame.Angles(0, 0, math.rad(90)),
+                0.04,
+                Enum.PartType.Cylinder
+            )
+            y = y + tier[1]
+        end
+
+        add(Vector3.new(0.28, 0.28, 0.28), CFrame.new(0, y + 0.14, 0), 0, Enum.PartType.Ball, {
+            lerp = 0.35,
+        })
+
+        for i = 1, 4 do
+            local a = (i - 1) * math.pi * 0.5
+            add(
+                Vector3.new(0.10, 0.34, 0.10),
+                CFrame.Angles(0, -a, 0),
+                0,
+                Enum.PartType.Block,
+                { kind = "rune", angle = a, radius = 1.18, y = 0.18, lerp = 0.45 }
+            )
+        end
+
+        return { model = model, parts = parts }
+    end
+
+    local function buildWings(parent, color)
+        local model = new("Model", { Name = "CosWings" }, parent)
+        local parts = {}
+        local function add(size, off, trans, shape, extra)
+            return addCosPart(model, parts, size, off, color, trans, shape, extra)
+        end
+
+        for side = -1, 1, 2 do
+            for i = 1, 5 do
+                local len = 2.35 - (i - 1) * 0.27
+                local off = CFrame.new(
+                    side * (0.16 + i * 0.045),
+                    0.18 + (i - 1) * 0.03,
+                    0.08
+                )
+                    * CFrame.Angles(
+                        0,
+                        side * math.rad(10 + i * 5),
+                        side * math.rad(16 + i * 9)
+                    )
+                    * CFrame.new(0, len * 0.5, 0)
+
+                add(
+                    Vector3.new(0.11, len, 0.30),
+                    off,
+                    0.12,
+                    Enum.PartType.Block,
+                    { kind = "wing", side = side }
+                )
+                add(
+                    Vector3.new(0.045, len * 0.86, 0.10),
+                    off * CFrame.new(0, 0, -0.11),
+                    0.02,
+                    Enum.PartType.Block,
+                    { kind = "wing", side = side, lerp = 0.55 }
+                )
+            end
+
+            add(
+                Vector3.new(0.34, 0.34, 0.34),
+                CFrame.new(side * 0.28, 0.42, 0.10),
+                0.05,
+                Enum.PartType.Ball,
+                { kind = "wing", side = side, lerp = 0.30 }
+            )
+        end
+
+        return { model = model, parts = parts }
+    end
+
+    local function buildCrown(parent, color)
+        local model = new("Model", { Name = "CosCrown" }, parent)
+        local parts = {}
+        local function add(size, off, trans, shape, extra)
+            return addCosPart(model, parts, size, off, color, trans, shape, extra)
+        end
+
+        add(
+            Vector3.new(0.15, 1.30, 1.30),
+            CFrame.new(0, 0.08, 0) * CFrame.Angles(0, 0, math.rad(90)),
+            0.05,
+            Enum.PartType.Cylinder
+        )
+        add(
+            Vector3.new(0.10, 1.08, 1.08),
+            CFrame.new(0, 0.10, 0) * CFrame.Angles(0, 0, math.rad(90)),
+            0.45,
+            Enum.PartType.Cylinder
+        )
+
+        for i = 1, 5 do
+            local a = (i - 1) * math.pi * 2 / 5
+            local x = math.cos(a) * 0.42
+            local z = math.sin(a) * 0.42
+            for tier = 1, 3 do
+                local h = 0.30 - tier * 0.045
+                local d = 0.30 - tier * 0.065
+                local y = 0.12 + (tier - 1) * 0.21
+                add(
+                    Vector3.new(h, d, d),
+                    CFrame.new(x, y + h * 0.5, z) * CFrame.Angles(0, 0, math.rad(90)),
+                    0.03,
+                    Enum.PartType.Cylinder,
+                    { lerp = 0.10 }
+                )
+            end
+        end
+
+        add(
+            Vector3.new(0.24, 0.24, 0.24),
+            CFrame.new(0, 0.30, -0.56),
+            0,
+            Enum.PartType.Ball,
+            { kind = "gem", lerp = 0.55 }
+        )
+
+        return { model = model, parts = parts }
+    end
+
+    local builders = {
+        hat = buildHat,
+        wings = buildWings,
+        crown = buildCrown,
+    }
+
+    for _, key in ipairs(COS_KEYS) do
+        worldModels[key] = builders[key](cosFolder, Config.cosmetic[key].color)
+    end
+
+    local function setModelVisible(cm, visible, ghost)
+        if not cm then
+            return
+        end
+        for _, item in ipairs(cm.parts) do
+            local part = item.part
+            if part and part.Parent then
+                if visible then
+                    part.Transparency = ghost
+                        and math.max(item.baseTrans, 0.62)
+                        or item.baseTrans
+                else
+                    part.Transparency = 1
+                end
+            end
+        end
+    end
+
+    local function updateModel(cm, base, cfg, t, angle, visible, ghost)
+        local scale = math.max(0.1, cfg.scale or 1)
+        local root = base
+            * CFrame.new(cfg.x or 0, cfg.y or 0, cfg.z or 0)
+            * CFrame.Angles(0, angle or 0, 0)
+
+        for _, item in ipairs(cm.parts) do
+            local part = item.part
+            if part and part.Parent then
+                local cf
+                if item.kind == "rune" then
+                    cf = root
+                        * CFrame.Angles(0, t * 1.6 + item.angle, 0)
+                        * CFrame.new(item.radius * scale, item.y * scale, 0)
+                        * item.offset.Rotation
+                elseif item.kind == "wing" then
+                    local speed = math.max(0, cfg.spin or 0)
+                    local flap = math.rad(
+                        math.sin(t * speed * 0.12 + item.side * 0.7) * 9
+                    )
+                    cf = root
+                        * CFrame.Angles(0, item.side * flap, 0)
+                        * CFrame.new(item.offset.Position * scale)
+                        * item.offset.Rotation
+                else
+                    cf = root
+                        * CFrame.new(item.offset.Position * scale)
+                        * item.offset.Rotation
+                end
+                part.CFrame = cf
+                part.Size = item.size * scale
+                if visible then
+                    part.Transparency = ghost
+                        and math.max(item.baseTrans, 0.62)
+                        or item.baseTrans
+                else
+                    part.Transparency = 1
+                end
+            end
+        end
+    end
+
+    cosmeticRefresh = function()
+        for _, key in ipairs(COS_KEYS) do
+            local cfg = Config.cosmetic[key]
+            local cm = worldModels[key]
+            if cm then
+                for _, item in ipairs(cm.parts) do
+                    local col = cfg.color
+                    if item.lerp > 0 then
+                        col = col:Lerp(Color3.new(1, 1, 1), item.lerp)
+                    end
+                    item.part.Color = col
+                end
+                if not cfg.enabled then
+                    setModelVisible(cm, false, false)
+                end
+            end
+
+            local pm = previewModels[key]
+            if pm then
+                for _, item in ipairs(pm.parts) do
+                    local col = cfg.color
+                    if item.lerp > 0 then
+                        col = col:Lerp(Color3.new(1, 1, 1), item.lerp)
+                    end
+                    item.part.Color = col
+                end
+            end
+        end
+        if previewRing and previewRing.Parent then
+            previewRing.Color = Theme.accent
+        end
+    end
+
+    local function ensurePreviewWorld()
+        if not ui.cosPreview then
+            return nil
+        end
+        local world = ui.cosPreview:FindFirstChildOfClass("WorldModel")
+        if not world then
+            world = new("WorldModel", { Name = "PreviewWorld" }, ui.cosPreview)
+        end
+        previewWorld = world
+        return world
+    end
+
+    local function buildPlatform(world)
+        new("Part", {
+            Name = "PreviewBase",
+            Size = Vector3.new(0.18, 4.6, 4.6),
+            CFrame = CFrame.new(0, -2.75, 0) * CFrame.Angles(0, 0, math.rad(90)),
+            Anchored = true,
+            CanCollide = false,
+            CanQuery = false,
+            CanTouch = false,
+            CastShadow = false,
+            Material = Enum.Material.SmoothPlastic,
+            Color = Color3.fromRGB(16, 18, 26),
+        }, world)
+        previewRing = new("Part", {
+            Name = "PreviewRing",
+            Size = Vector3.new(0.06, 4.7, 4.7),
+            CFrame = CFrame.new(0, -2.64, 0) * CFrame.Angles(0, 0, math.rad(90)),
+            Anchored = true,
+            CanCollide = false,
+            CanQuery = false,
+            CanTouch = false,
+            CastShadow = false,
+            Material = Enum.Material.Neon,
+            Color = Theme.accent,
+            Transparency = 0.15,
+        }, world)
+    end
+
+    local function buildDummyPreview(world)
+        local model = new("Model", { Name = "PreviewDummy" }, world)
+        local skin = Color3.fromRGB(232, 200, 170)
+        local cloth = Color3.fromRGB(58, 66, 92)
+        local function part(name, size, cf, color)
+            return new("Part", {
+                Name = name,
+                Size = size,
+                CFrame = cf,
+                Anchored = true,
+                CanCollide = false,
+                CanQuery = false,
+                CanTouch = false,
+                CastShadow = false,
+                Material = Enum.Material.SmoothPlastic,
+                Color = color,
+            }, model)
+        end
+        part("Torso", Vector3.new(2, 2, 1), CFrame.new(0, 0, 0), cloth)
+        part("Head", Vector3.new(1.2, 1.2, 1.2), CFrame.new(0, 1.6, 0), skin)
+        part("Left Arm", Vector3.new(0.8, 2, 0.8), CFrame.new(-1.45, 0, 0), skin)
+        part("Right Arm", Vector3.new(0.8, 2, 0.8), CFrame.new(1.45, 0, 0), skin)
+        part("Left Leg", Vector3.new(0.8, 2, 0.8), CFrame.new(-0.5, -1.6, 0), cloth)
+        part("Right Leg", Vector3.new(0.8, 2, 0.8), CFrame.new(0.5, -1.6, 0), cloth)
+        return model
+    end
+
+    local function setupPreview()
+        if not benchAlive or not ui.cosPreview then
+            return
+        end
+        local world = ensurePreviewWorld()
+        if not world then
+            return
+        end
+        world:ClearAllChildren()
+        previewModels = {}
+        previewAngles = {}
+        previewChar = nil
+        previewRing = nil
+        buildPlatform(world)
+
+        local char = LocalPlayer.Character
+        local model = nil
+        if char and char:FindFirstChild("Head") then
+            local ok, clone = pcall(function()
+                return char:Clone()
+            end)
+            if ok and clone then
+                model = clone
+                local remove = {}
+                for _, d in ipairs(model:GetDescendants()) do
+                    if d:IsA("Script")
+                        or d:IsA("LocalScript")
+                        or d:IsA("Humanoid")
+                        or d:IsA("Accessory")
+                        or d:IsA("Hat")
+                        or d:IsA("Tool") then
+                        remove[#remove + 1] = d
+                    end
+                end
+                for _, d in ipairs(remove) do
+                    d:Destroy()
+                end
+                for _, d in ipairs(model:GetDescendants()) do
+                    if d:IsA("BasePart") then
+                        d.Anchored = true
+                        d.CanCollide = false
+                        d.CanQuery = false
+                        d.CanTouch = false
+                        d.CastShadow = false
+                    end
+                end
+                model.Parent = world
+                pcall(function()
+                    model:PivotTo(CFrame.new(0, 0, 0))
+                end)
+            end
+        end
+        if not model then
+            model = buildDummyPreview(world)
+        end
+        previewChar = model
+
+        for _, key in ipairs(COS_KEYS) do
+            previewModels[key] = builders[key](world, Config.cosmetic[key].color)
+            previewAngles[key] = 0
+        end
+        cosmeticRefresh()
+    end
+
+    local function updatePreviewImpl(dt, t)
+        if not previewWorld or not previewChar then
+            return
+        end
+        local head = previewChar:FindFirstChild("Head")
+        local torso = previewChar:FindFirstChild("UpperTorso")
+            or previewChar:FindFirstChild("Torso")
+
+        for i, key in ipairs(COS_KEYS) do
+            local cm = previewModels[key]
+            local cfg = Config.cosmetic[key]
+            if cm then
+                local base
+                if key == "wings" then
+                    if torso then
+                        base = torso.CFrame
+                            * CFrame.new(0, 0.35, torso.Size.Z * 0.5 + 0.12)
+                    end
+                elseif head then
+                    base = head.CFrame
+                        * CFrame.new(0, head.Size.Y * 0.5 + 0.05, 0)
+                end
+
+                local ghost = not cfg.enabled
+                local visible = cfg.enabled or (Config.cosmetic.selected == i)
+                if base and visible then
+                    if key ~= "wings" then
+                        previewAngles[key] =
+                            (previewAngles[key] or 0) + dt * math.rad(cfg.spin or 0)
+                    end
+                    updateModel(
+                        cm,
+                        base,
+                        cfg,
+                        t,
+                        previewAngles[key] or 0,
+                        true,
+                        ghost
+                    )
+                else
+                    setModelVisible(cm, false, false)
+                end
+            end
+        end
+
+        if ui.cosPreviewCam then
+            previewSpin = previewSpin + dt * 0.55
+            local radius = 7.4
+            ui.cosPreviewCam.CFrame = CFrame.lookAt(
+                Vector3.new(
+                    math.cos(previewSpin) * radius,
+                    1.7,
+                    math.sin(previewSpin) * radius
+                ),
+                Vector3.new(0, -0.25, 0)
+            )
+        end
+    end
+
+    local function updateCosmeticsImpl(dt)
+        if not benchAlive then
+            return
+        end
+        dt = dt or 0.016
+        local t = tick()
+        local char = LocalPlayer.Character
+        local head = char and char:FindFirstChild("Head")
+        local torso = char
+            and (char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso"))
+
+        for _, key in ipairs(COS_KEYS) do
+            local cm = worldModels[key]
+            local cfg = Config.cosmetic[key]
+            if cm then
+                local base
+                if key == "wings" then
+                    if torso then
+                        base = torso.CFrame
+                            * CFrame.new(0, 0.35, torso.Size.Z * 0.5 + 0.12)
+                    end
+                elseif head then
+                    base = head.CFrame
+                        * CFrame.new(0, head.Size.Y * 0.5 + 0.05, 0)
+                end
+
+                if base and cfg.enabled then
+                    if key ~= "wings" then
+                        cm.angle = (cm.angle or 0) + dt * math.rad(cfg.spin or 0)
+                    end
+                    updateModel(cm, base, cfg, t, cm.angle or 0, true, false)
+                else
+                    setModelVisible(cm, false, false)
+                end
+            end
+        end
+
+        updatePreviewImpl(dt, t)
+
+        saveAcc = saveAcc + dt
+        if saveAcc >= 5 then
+            saveAcc = 0
+            saveSettings()
+        end
+    end
+    updateCosmetics = updateCosmeticsImpl
+
+    setupPreview()
+    track(LocalPlayer.CharacterAdded:Connect(function()
+        task.delay(0.8, setupPreview)
+    end))
+
+    cosmeticRefresh()
+
+    hubSound = new("Sound", {
+        Name = "BenchMusicSound",
+        Volume = math.clamp(Config.yt.volume / 100, 0, 1),
+        Looped = false,
+    }, SoundService)
+    track(hubSound.Ended:Connect(function()
+        if benchAlive and ui.ytNext then
+            task.defer(ui.ytNext)
+        end
+    end))
+    local firstSong = Config.yt.tracks[Config.yt.index]
+    if firstSong and ui.audioId then
+        local id = ui.audioId(firstSong.id)
+        if id ~= "" then
+            hubSound.SoundId = id
+        end
+    end
+    ytUpdateHub()
+end
+initCosmeticsAndMusic()
+
 --// fov circle
 local fovCircle = new("Frame", {
     AnchorPoint = Vector2.new(0.5, 0.5),
@@ -3670,6 +6046,10 @@ track(RunService.RenderStepped:Connect(function(dt)
     updateAurora(dt)
     updateWalk(dt)
     updateOrbit(dt)
+    updateCosmetics(dt)
+    if ytUpdateHub then
+        ytUpdateHub()
+    end
 
     fovCircle.Visible = Config.aim.enabled
     if Config.aim.enabled then
@@ -3685,15 +6065,33 @@ end
 
 track(Players.PlayerAdded:Connect(createEsp))
 track(Players.PlayerRemoving:Connect(function(plr)
-    local ui = espCache[plr]
-    if ui then
-        ui.holder:Destroy()
+    local cache = espCache[plr]
+    if cache then
+        cache.holder:Destroy()
     end
     espCache[plr] = nil
 end))
 
 --// teardown
 unload = function()
+    benchAlive = false
+    pcall(saveSettings)
+
+    if hubSound then
+        pcall(function()
+            hubSound:Stop()
+            hubSound:Destroy()
+        end)
+        hubSound = nil
+    end
+    if musicGui then
+        pcall(function()
+            musicGui:Destroy()
+        end)
+        musicGui = nil
+        musicHub = nil
+    end
+
     for _, conn in ipairs(connections) do
         pcall(function()
             conn:Disconnect()
