@@ -78,16 +78,24 @@ local Config = {
         colorA = Color3.fromRGB(40, 255, 180),
         colorB = Color3.fromRGB(120, 90, 255),
         rainbow = false,
+        light = 1,
     },
     jump = {
         enabled = true,
         color = Color3.fromRGB(0, 200, 255),
         rainbow = false,
+        ring = true,
+        ringTime = 3,
+        ringSize = 5,
     },
     walk = {
         enabled = false,
         mode = 1,
         power = 1,
+        width = 1,
+        brightness = 1.5,
+        rate = 1,
+        length = 1,
         color = Color3.fromRGB(255, 120, 30),
         rainbow = false,
     },
@@ -97,11 +105,13 @@ local Config = {
         count = 8,
         radius = 3.5,
         size = 1,
+        persistent = false,
         color = Color3.fromRGB(255, 220, 80),
         rainbow = false,
     },
     cosmetic = {
         selected = 1,
+        hold = 1,
         hat = {
             enabled = false,
             color = Color3.fromRGB(80, 200, 255),
@@ -191,6 +201,7 @@ local Config = {
         transparency = 0,
         imageId = "",
         imageTransparency = 0.85,
+        scale = 1,
     },
 }
 
@@ -489,6 +500,7 @@ local function applySettingsData(data)
         1
     )
     Config.gui.imageId = tostring(Config.gui.imageId or "")
+    Config.gui.scale = math.clamp(tonumber(Config.gui.scale) or 1, 0.55, 1.1)
 
     local function keepColor(value, fallback)
         if typeof(value) == "Color3" then
@@ -517,12 +529,20 @@ local function applySettingsData(data)
     Config.esp.targetSpin = math.clamp(tonumber(Config.esp.targetSpin) or 90, 0, 720)
     Config.sky.type = math.floor(math.clamp(tonumber(Config.sky.type) or 1, 1, #SKY_NAMES))
     Config.sky.speed = math.clamp(tonumber(Config.sky.speed) or 40, 0, 100)
+    Config.sky.light = math.clamp(tonumber(Config.sky.light) or 1, 0.5, 2)
     Config.walk.mode = math.floor(math.clamp(tonumber(Config.walk.mode) or 1, 1, #WALK_MODES))
     Config.walk.power = math.clamp(tonumber(Config.walk.power) or 1, 1, 3)
+    Config.walk.width = math.clamp(tonumber(Config.walk.width) or 1, 0.4, 3)
+    Config.walk.brightness = math.clamp(tonumber(Config.walk.brightness) or 1.5, 0.4, 3)
+    Config.walk.rate = math.clamp(tonumber(Config.walk.rate) or 1, 0.2, 3)
+    Config.walk.length = math.clamp(tonumber(Config.walk.length) or 1, 0.4, 3)
     Config.orbit.kind = math.floor(math.clamp(tonumber(Config.orbit.kind) or 1, 1, #ORBIT_KINDS))
     Config.orbit.count = math.clamp(tonumber(Config.orbit.count) or 8, 1, 10)
     Config.orbit.radius = math.clamp(tonumber(Config.orbit.radius) or 3.5, 2, 80)
     Config.orbit.size = math.clamp(tonumber(Config.orbit.size) or 1, 1, 3)
+    Config.jump.ringTime = math.clamp(tonumber(Config.jump.ringTime) or 3, 0.5, 10)
+    Config.jump.ringSize = math.clamp(tonumber(Config.jump.ringSize) or 5, 2, 16)
+    Config.cosmetic.hold = math.floor(math.clamp(tonumber(Config.cosmetic.hold) or 1, 1, 3))
     Config.yt.volume = math.clamp(tonumber(Config.yt.volume) or 60, 0, 100)
     Config.yt.hubX = math.clamp(tonumber(Config.yt.hubX) or 0.62, 0, 1)
     Config.yt.hubY = math.clamp(tonumber(Config.yt.hubY) or 0.68, 0, 1)
@@ -734,7 +754,7 @@ local panel = new("Frame", {
 }, gui)
 corner(panel, Config.gui.corner, true)
 stroke(panel, Theme.stroke, Config.gui.borderWidth, true)
-local panelScale = new("UIScale", { Scale = 1 }, panel)
+local panelScale = new("UIScale", { Scale = Config.gui.scale or 1 }, panel)
 
 local panelImage = new("ImageLabel", {
     Size = UDim2.fromScale(1, 1),
@@ -1694,20 +1714,41 @@ toggleRow(visualRatioGroup, "4:3 aspect", false, function(v)
                 BorderSizePixel = 0,
                 ZIndex = 100,
             }, espGui)
-            -- calculate bar width for 4:3
-            local vp = viewport()
-            local targetAspect = 4 / 3
-            local currentAspect = vp.X / vp.Y
-            local barWidth = 0
-            if currentAspect > targetAspect then
-                barWidth = (vp.X - vp.Y * targetAspect) / 2
+            local function applyBars()
+                if not _G.BenchAspectBars then
+                    return
+                end
+                local vp = viewport()
+                local targetAspect = 4 / 3
+                local currentAspect = vp.X / math.max(vp.Y, 1)
+                if currentAspect > targetAspect then
+                    local barWidth = (vp.X - vp.Y * targetAspect) / 2
+                    barL.Size = UDim2.fromOffset(barWidth, vp.Y)
+                    barL.Position = UDim2.fromOffset(0, 0)
+                    barR.Size = UDim2.fromOffset(barWidth, vp.Y)
+                    barR.Position = UDim2.fromOffset(vp.X - barWidth, 0)
+                elseif currentAspect < targetAspect then
+                    local barHeight = (vp.Y - vp.X / targetAspect) / 2
+                    barL.Size = UDim2.fromOffset(vp.X, barHeight)
+                    barL.Position = UDim2.fromOffset(0, 0)
+                    barR.Size = UDim2.fromOffset(vp.X, barHeight)
+                    barR.Position = UDim2.fromOffset(0, vp.Y - barHeight)
+                else
+                    barL.Size = UDim2.fromOffset(0, 0)
+                    barR.Size = UDim2.fromOffset(0, 0)
+                end
             end
-            barL.Size = UDim2.fromOffset(barWidth, vp.Y)
-            barR.Size = UDim2.fromOffset(barWidth, vp.Y)
-            barL.Position = UDim2.fromOffset(0, 0)
-            barR.Position = UDim2.fromOffset(vp.X - barWidth, 0)
+            applyBars()
             _G.BenchAspectL = barL
             _G.BenchAspectR = barR
+            local cam = workspace.CurrentCamera
+            if cam then
+                if _G.BenchAspectConn then
+                    _G.BenchAspectConn:Disconnect()
+                end
+                _G.BenchAspectConn = cam:GetPropertyChangedSignal("ViewportSize"):Connect(applyBars)
+                track(_G.BenchAspectConn)
+            end
         end
     else
         if _G.BenchAspectL then
@@ -1718,12 +1759,16 @@ toggleRow(visualRatioGroup, "4:3 aspect", false, function(v)
             _G.BenchAspectR:Destroy()
             _G.BenchAspectR = nil
         end
+        if _G.BenchAspectConn then
+            _G.BenchAspectConn:Disconnect()
+            _G.BenchAspectConn = nil
+        end
         _G.BenchAspectBars = false
     end
 end)
 note(visualRatioGroup,
-    "Chuyển màn hình sang tỷ lệ 4:3 bằng cách thêm thanh đen hai bên. "
-    .. "Chỉ hoạt động khi màn hình rộng hơn 4:3.", 44)
+    "Chuyển màn hình sang tỷ lệ 4:3 bằng thanh đen: màn ngang thêm hai bên, "
+    .. "màn dọc thêm trên/dưới. Dùng Panel scale bên tab GUI để thu nhỏ menu.", 44)
 
 local espGroup = collapsible(pages.render, "esp", true)
 toggleRow(espGroup, "2D box", Config.esp.box2d, function(v)
@@ -1777,12 +1822,24 @@ end)
 sliderRow(skyGroup, "Sky speed", 0, 100, Config.sky.speed, "", function(v)
     Config.sky.speed = v
 end)
+sliderRow(skyGroup, "Sky light", 50, 200, math.floor(Config.sky.light * 100), "%", function(v)
+    Config.sky.light = v / 100
+end)
 colorPicker(skyGroup, "Aurora A", Config.sky, "colorA")
 colorPicker(skyGroup, "Aurora B", Config.sky, "colorB")
 
 local jumpGroup = collapsible(pages.render, "jump fx", false)
-toggleRow(jumpGroup, "Jump shockwave", Config.jump.enabled, function(v)
+toggleRow(jumpGroup, "Jump fx", Config.jump.enabled, function(v)
     Config.jump.enabled = v
+end)
+toggleRow(jumpGroup, "Ground ring", Config.jump.ring, function(v)
+    Config.jump.ring = v
+end)
+sliderRow(jumpGroup, "Ring size", 2, 16, Config.jump.ringSize, " stud", function(v)
+    Config.jump.ringSize = v
+end)
+sliderRow(jumpGroup, "Ring time", 1, 10, Config.jump.ringTime, " s", function(v)
+    Config.jump.ringTime = v
 end)
 toggleRow(jumpGroup, "Rainbow jump", Config.jump.rainbow, function(v)
     Config.jump.rainbow = v
@@ -1799,6 +1856,21 @@ end)
 sliderRow(walkGroup, "Walk power", 1, 3, Config.walk.power, "", function(v)
     Config.walk.power = v
 end)
+sliderRow(walkGroup, "Trail width", 0.4, 3, Config.walk.width, "x", function(v)
+    Config.walk.width = v
+end)
+sliderRow(walkGroup, "Brightness", 0.4, 3, Config.walk.brightness, "x", function(v)
+    Config.walk.brightness = v
+end)
+sliderRow(walkGroup, "Particle rate", 0.2, 3, Config.walk.rate, "x", function(v)
+    Config.walk.rate = v
+end)
+sliderRow(walkGroup, "Trail length", 0.4, 3, Config.walk.length, "x", function(v)
+    Config.walk.length = v
+end)
+note(walkGroup,
+    "Fire có lửa thật phía sau, Lightning có tia sét thật phía sau. "
+    .. "Tăng Brightness / Width / Rate nếu muốn rõ hơn.", 30)
 toggleRow(walkGroup, "Rainbow walk", Config.walk.rainbow, function(v)
     Config.walk.rainbow = v
 end)
@@ -1820,6 +1892,12 @@ end)
 sliderRow(orbitGroup, "Orbit size", 1, 3, Config.orbit.size, "", function(v)
     Config.orbit.size = v
 end)
+toggleRow(orbitGroup, "Stay forever", Config.orbit.persistent, function(v)
+    Config.orbit.persistent = v
+end)
+note(orbitGroup,
+    "Bán kính càng xa thì càng nhiều hạt xuất hiện. "
+    .. "Stay forever giữ chúng bay quanh nhân vật mãi mãi.", 30)
 toggleRow(orbitGroup, "Rainbow orbit", Config.orbit.rainbow, function(v)
     Config.orbit.rainbow = v
 end)
@@ -1847,6 +1925,7 @@ local COSMETIC_DEFS = {
     { key = "thorhammer", label = "Thor Hammer", desc = "Lightning mallet", cat = "hand" },
     { key = "scythe", label = "Energy Scythe", desc = "Curved blade", cat = "hand" },
 }
+ui.cosDefs = COSMETIC_DEFS
 local cosCards = {}
 local cosControls
 local cosPreview
@@ -1906,13 +1985,13 @@ new("TextLabel", {
 }, cosBackdrop)
 new("TextLabel", {
     Position = UDim2.fromOffset(10, 21),
-    Size = UDim2.new(1, -20, 0, 12),
+    Size = UDim2.new(1, -70, 0, 12),
     BackgroundTransparency = 1,
     Font = Enum.Font.GothamMedium,
     TextSize = 8,
     TextColor3 = Color3.fromRGB(206, 214, 236),
     TextXAlignment = Enum.TextXAlignment.Left,
-    Text = "keo de xoay - vuot de nghieng",
+    Text = "drag to rotate",
     ZIndex = 2,
 }, cosBackdrop)
 
@@ -1930,6 +2009,7 @@ local previewName = new("TextLabel", {
 }, cosBackdrop)
 
 ui.cosPreviewOnly = false
+ui.cosItemOnly = false
 local previewOnlyBtn = new("TextButton", {
     Position = UDim2.new(1, -56, 0, 6),
     Size = UDim2.fromOffset(48, 18),
@@ -1952,6 +2032,33 @@ track(previewOnlyBtn.Activated:Connect(function()
         or Color3.fromRGB(26, 32, 46)
 end))
 
+local previewBodyBtn = new("TextButton", {
+    Position = UDim2.new(1, -56, 0, 27),
+    Size = UDim2.fromOffset(48, 16),
+    BackgroundColor3 = Color3.fromRGB(26, 32, 46),
+    BackgroundTransparency = 0.2,
+    AutoButtonColor = false,
+    BorderSizePixel = 0,
+    Font = Enum.Font.GothamBold,
+    TextSize = 8,
+    TextColor3 = Color3.fromRGB(228, 234, 250),
+    Text = "BODY",
+    ZIndex = 3,
+}, cosBackdrop)
+corner(previewBodyBtn, 7)
+local function refreshPreviewBodyBtn()
+    previewBodyBtn.Text = ui.cosItemOnly and "ITEM" or "BODY"
+    previewBodyBtn.BackgroundColor3 = ui.cosItemOnly
+        and Theme.accent
+        or Color3.fromRGB(26, 32, 46)
+end
+track(previewBodyBtn.Activated:Connect(function()
+    ui.cosItemOnly = not ui.cosItemOnly
+    refreshPreviewBodyBtn()
+end))
+ui.refreshPreviewBodyBtn = refreshPreviewBodyBtn
+
+local HOLD_MODES = { "Forward", "Side", "Up" }
 local COS_CATS = {
     { key = "head", label = "HAT" },
     { key = "wing", label = "WING" },
@@ -2158,6 +2265,10 @@ end
 
 local function setCosCat(key)
     cosCat = key
+    if ui.refreshPreviewBodyBtn then
+        ui.cosItemOnly = (key == "hand")
+        ui.refreshPreviewBodyBtn()
+    end
     for _, item in ipairs(cosCatBtns) do
         local active = item.key == key
         item.btn.BackgroundColor3 = active and Theme.accent or Theme.bg
@@ -2258,9 +2369,12 @@ renderCosControls = function()
         cosmeticRefresh()
     end)
     if def.cat == "hand" then
+        cycleRow(cosControls, "Hold style", HOLD_MODES, Config.cosmetic.hold, function(i)
+            Config.cosmetic.hold = i
+        end)
         note(cosControls,
-            "Vu khi tu dong nam trong tay phai va bam theo tay. "
-            .. "Dung Pos X / Y / Z va Size de canh chinh cho vua.", 34)
+            "Forward = nam ngang chi ra truoc, Side = nam ngang quay ra ngoai, "
+            .. "Up = dung. Dung Pos X / Y / Z va Size de canh chinh.", 34)
     elseif def.key == "wings" or def.key == "dragonwings" then
         sliderRow(cosControls, "Flap speed", 0, 360, cfg.spin, " deg/s", function(v)
             cfg.spin = v
@@ -3362,6 +3476,13 @@ sliderRow(pages.gui, "Panel opacity", 0, 100, math.floor((1 - Config.gui.transpa
     Config.gui.transparency = 1 - v / 100
     applyTheme()
 end)
+sliderRow(pages.gui, "Panel scale", 55, 110, math.floor((Config.gui.scale or 1) * 100), "%", function(v)
+    Config.gui.scale = v / 100
+    panelScale.Scale = Config.gui.scale
+end)
+note(pages.gui,
+    "Panel scale thu nhỏ / phóng to toàn bộ menu. Visual ratio 4:3 thêm "
+    .. "thanh đen để hạ màn hình về đúng tỷ lệ.", 28)
 
 textInputRow(pages.gui, "Image id", "rbxassetid", Config.gui.imageId, function(text)
     Config.gui.imageId = text
@@ -3382,6 +3503,8 @@ buttonRow(pages.gui, "RESET GUI", Color3.fromRGB(40, 32, 20), function()
     Config.gui.transparency = 0
     Config.gui.imageId = ""
     Config.gui.imageTransparency = 0.85
+    Config.gui.scale = 1
+    panelScale.Scale = 1
     applyTheme()
 end)
 
@@ -3555,11 +3678,11 @@ end
 local function setPanel(open)
     if open then
         panel.Visible = true
-        panelScale.Scale = 0.88
+        panelScale.Scale = (Config.gui.scale or 1) * 0.88
         TweenService:Create(
             panelScale,
             TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
-            { Scale = 1 }
+            { Scale = Config.gui.scale or 1 }
         ):Play()
     else
         panel.Visible = false
@@ -4310,88 +4433,88 @@ local stormTimer = 0
 local SKY_STYLES = {
     {
         name = "Aurora",
-        clock = 0, brightness = 1.2, fog = 5000, stars = 5000, bodies = true,
-        ambient = Color3.fromRGB(12, 14, 34),
-        outdoor = Color3.fromRGB(20, 24, 52),
-        atmo = Color3.fromRGB(34, 52, 110),
-        decay = Color3.fromRGB(22, 30, 66),
-        density = 0.28,
-        haze = 0.7,
-        tint = Color3.fromRGB(190, 255, 240), saturation = 0.15, contrast = 0.05,
-        rays = { count = 20, spread = 2300, top = 340, bottom = -280, width = 44, speed = 1 },
-        bands = { count = 3, spread = 1900, top = 120, bottom = -80, width = 380, speed = 0.5 },
+        clock = 0, brightness = 2.6, fog = 15000, stars = 5000, bodies = true,
+        ambient = Color3.fromRGB(58, 64, 90),
+        outdoor = Color3.fromRGB(82, 94, 124),
+        atmo = Color3.fromRGB(70, 100, 160),
+        decay = Color3.fromRGB(45, 60, 105),
+        density = 0.12,
+        haze = 0.28,
+        tint = Color3.fromRGB(220, 255, 248), saturation = 0.12, contrast = 0.03,
+        rays = { count = 26, spread = 2600, top = 400, bottom = -320, width = 58, speed = 1.1 },
+        bands = { count = 7, spread = 2200, top = 180, bottom = -140, width = 520, speed = 0.5 },
         lightning = false,
     },
     {
         name = "Sunset",
-        clock = 17.4, brightness = 2, fog = 7000, stars = 400, bodies = true,
-        ambient = Color3.fromRGB(80, 52, 60),
-        outdoor = Color3.fromRGB(150, 90, 80),
-        atmo = Color3.fromRGB(255, 150, 100),
-        decay = Color3.fromRGB(140, 70, 80),
-        density = 0.4,
-        haze = 0.8,
-        tint = Color3.fromRGB(255, 205, 175), saturation = 0.2, contrast = 0.08,
-        colorA = Color3.fromRGB(255, 170, 80), colorB = Color3.fromRGB(255, 80, 140),
+        clock = 17.4, brightness = 2.9, fog = 16000, stars = 500, bodies = true,
+        ambient = Color3.fromRGB(132, 100, 95),
+        outdoor = Color3.fromRGB(192, 145, 120),
+        atmo = Color3.fromRGB(255, 175, 130),
+        decay = Color3.fromRGB(160, 95, 95),
+        density = 0.16,
+        haze = 0.32,
+        tint = Color3.fromRGB(255, 220, 195), saturation = 0.15, contrast = 0.05,
+        colorA = Color3.fromRGB(255, 180, 95), colorB = Color3.fromRGB(255, 100, 150),
         rays = { count = 0, spread = 1, top = 0, bottom = 0, width = 0, speed = 0 },
-        bands = { count = 7, spread = 2600, top = -120, bottom = -300, width = 560, speed = 0.35 },
+        bands = { count = 8, spread = 2800, top = -100, bottom = -280, width = 600, speed = 0.3 },
         lightning = false,
     },
     {
         name = "Galaxy",
-        clock = 0, brightness = 1, fog = 6000, stars = 5000, bodies = true,
-        ambient = Color3.fromRGB(10, 12, 28),
-        outdoor = Color3.fromRGB(18, 22, 46),
-        atmo = Color3.fromRGB(26, 34, 80),
-        decay = Color3.fromRGB(18, 22, 52),
-        density = 0.22,
-        haze = 0.45,
-        tint = Color3.fromRGB(210, 215, 255), saturation = 0.1, contrast = 0.1,
-        colorA = Color3.fromRGB(120, 180, 255), colorB = Color3.fromRGB(180, 120, 255),
+        clock = 0, brightness = 2.3, fog = 18000, stars = 6000, bodies = true,
+        ambient = Color3.fromRGB(44, 50, 80),
+        outdoor = Color3.fromRGB(62, 72, 112),
+        atmo = Color3.fromRGB(50, 62, 118),
+        decay = Color3.fromRGB(32, 40, 82),
+        density = 0.08,
+        haze = 0.14,
+        tint = Color3.fromRGB(225, 230, 255), saturation = 0.08, contrast = 0.04,
+        colorA = Color3.fromRGB(120, 180, 255), colorB = Color3.fromRGB(190, 120, 255),
         rays = { count = 0, spread = 1, top = 0, bottom = 0, width = 0, speed = 0 },
-        bands = { count = 8, spread = 3000, top = 260, bottom = -220, width = 640, speed = 0.18 },
+        bands = { count = 10, spread = 3200, top = 280, bottom = -240, width = 700, speed = 0.16 },
         lightning = false,
     },
     {
         name = "Storm",
-        clock = 22, brightness = 0.7, fog = 3000, stars = 0,
-        ambient = Color3.fromRGB(18, 20, 26),
-        outdoor = Color3.fromRGB(30, 34, 44),
-        atmo = Color3.fromRGB(40, 46, 60),
-        decay = Color3.fromRGB(20, 24, 34),
-        density = 0.55,
-        haze = 1,
-        tint = Color3.fromRGB(190, 200, 220), saturation = -0.2, contrast = 0.2,
-        colorA = Color3.fromRGB(90, 100, 120), colorB = Color3.fromRGB(30, 36, 50),
+        clock = 22, brightness = 2.2, fog = 12000, stars = 0,
+        ambient = Color3.fromRGB(76, 82, 98),
+        outdoor = Color3.fromRGB(96, 104, 122),
+        atmo = Color3.fromRGB(72, 84, 108),
+        decay = Color3.fromRGB(42, 50, 68),
+        density = 0.22,
+        haze = 0.38,
+        tint = Color3.fromRGB(205, 215, 235), saturation = -0.1, contrast = 0.1,
+        colorA = Color3.fromRGB(110, 120, 140), colorB = Color3.fromRGB(45, 52, 68),
         rays = { count = 0, spread = 1, top = 0, bottom = 0, width = 0, speed = 0 },
-        bands = { count = 9, spread = 3200, top = 380, bottom = 60, width = 720, speed = 1.6 },
+        bands = { count = 10, spread = 3400, top = 400, bottom = 80, width = 760, speed = 1.4 },
         lightning = true,
     },
     {
         name = "Nebula",
-        clock = 0, brightness = 1.1, fog = 6000, stars = 4500, bodies = true,
-        ambient = Color3.fromRGB(14, 10, 30),
-        outdoor = Color3.fromRGB(22, 16, 48),
-        atmo = Color3.fromRGB(60, 30, 110),
-        decay = Color3.fromRGB(40, 20, 80),
-        density = 0.26,
-        haze = 0.5,
-        tint = Color3.fromRGB(235, 200, 255), saturation = 0.25, contrast = 0.08,
+        clock = 0, brightness = 2.4, fog = 18000, stars = 5200, bodies = true,
+        ambient = Color3.fromRGB(52, 42, 82),
+        outdoor = Color3.fromRGB(72, 60, 112),
+        atmo = Color3.fromRGB(90, 60, 152),
+        decay = Color3.fromRGB(62, 42, 112),
+        density = 0.10,
+        haze = 0.18,
+        tint = Color3.fromRGB(245, 220, 255), saturation = 0.18, contrast = 0.04,
         colorA = Color3.fromRGB(80, 255, 220), colorB = Color3.fromRGB(255, 80, 200),
         rays = { count = 0, spread = 1, top = 0, bottom = 0, width = 0, speed = 0 },
-        bands = { count = 10, spread = 2800, top = 300, bottom = -260, width = 700, speed = 0.22 },
+        bands = { count = 12, spread = 3000, top = 320, bottom = -280, width = 760, speed = 0.2 },
         lightning = false,
     },
     {
         name = "Void",
-        clock = 0, brightness = 0.35, fog = 8000, stars = 5000, bodies = true,
-        ambient = Color3.fromRGB(4, 5, 10),
-        outdoor = Color3.fromRGB(8, 10, 18),
-        atmo = Color3.fromRGB(6, 8, 16),
-        decay = Color3.fromRGB(4, 6, 12),
-        density = 0.1,
-        haze = 0.2,
-        tint = Color3.fromRGB(200, 210, 255), saturation = 0, contrast = 0.15,
+        clock = 0, brightness = 2.0, fog = 24000, stars = 6000, bodies = true,
+        ambient = Color3.fromRGB(38, 42, 64),
+        outdoor = Color3.fromRGB(50, 56, 84),
+        atmo = Color3.fromRGB(14, 18, 34),
+        decay = Color3.fromRGB(10, 12, 26),
+        density = 0.04,
+        haze = 0.05,
+        tint = Color3.fromRGB(220, 225, 255), saturation = 0, contrast = 0.05,
         colorA = Color3.fromRGB(80, 120, 255), colorB = Color3.fromRGB(120, 60, 200),
         rays = { count = 0, spread = 1, top = 0, bottom = 0, width = 0, speed = 0 },
         bands = { count = 0, spread = 1, top = 0, bottom = 0, width = 0, speed = 0 },
@@ -4439,11 +4562,17 @@ local function makeAurora(style)
             Attachment0 = a0,
             Attachment1 = a1,
             FaceCamera = true,
-            Segments = 16,
+            Segments = 24,
             LightEmission = 1,
             LightInfluence = 0,
             Width0 = 80,
             Width1 = 120,
+            CurveSize0 = 0,
+            CurveSize1 = 0,
+            Texture = "rbxasset://textures/particles/smoke_main.dds",
+            TextureMode = Enum.TextureMode.Wrap,
+            TextureLength = 24,
+            TextureSpeed = 0.04,
             Color = ColorSequence.new(Config.sky.colorA, Config.sky.colorB),
             Transparency = NumberSequence.new({
                 NumberSequenceKeypoint.new(0, 1),
@@ -4471,6 +4600,224 @@ local function makeAurora(style)
     for i = 1, style.bands.count do
         add("band", i)
     end
+end
+
+function SKY_STYLES.galaxy(style)
+    local ca = style.colorA or Config.sky.colorA
+    local cb = style.colorB or Config.sky.colorB
+    local deep = { galaxies = {} }
+    local defs = {
+        {
+            dir = Vector3.new(0.22, 0.50, -0.84),
+            dist = 4600, radius = 980, arms = 4, count = 110,
+            tiltX = math.rad(-62), tiltZ = math.rad(16), spin = 0.018,
+        },
+        {
+            dir = Vector3.new(-0.72, 0.42, 0.55),
+            dist = 5200, radius = 720, arms = 3, count = 70,
+            tiltX = math.rad(-50), tiltZ = math.rad(-28), spin = -0.024,
+        },
+        {
+            dir = Vector3.new(0.62, 0.36, 0.70),
+            dist = 5400, radius = 620, arms = 3, count = 60,
+            tiltX = math.rad(-70), tiltZ = math.rad(38), spin = 0.03,
+        },
+    }
+
+    for _, def in ipairs(defs) do
+        local model = new("Model", { Name = "BenchGalaxy" }, fxFolder)
+        local core = new("Part", {
+            Name = "Core",
+            Shape = Enum.PartType.Ball,
+            Size = Vector3.new(def.radius * 0.16, def.radius * 0.16, def.radius * 0.16),
+            Color = Color3.fromRGB(255, 248, 235),
+            Material = Enum.Material.Neon,
+            Transparency = 0.08,
+            Anchored = true,
+            CanCollide = false,
+            CanQuery = false,
+            CanTouch = false,
+            CastShadow = false,
+        }, model)
+        core.CFrame = CFrame.new(0, 0, 0)
+
+        for i = 1, def.count do
+            local arm = (i - 1) % def.arms
+            local u = (i / def.count) ^ 0.62
+            local angle = u * 7.4 + arm * (math.pi * 2 / def.arms)
+            local r = def.radius * (0.08 + u * 0.92)
+            local y = (math.random() - 0.5) * def.radius * 0.055 * (1.05 - u * 0.5)
+            local size = (12 + math.random() * 30) * (1.2 - u * 0.55)
+            local col
+            if u < 0.25 then
+                col = Color3.fromRGB(255, 240, 220):Lerp(ca, 0.35 + math.random() * 0.3)
+            else
+                col = ca:Lerp(cb, math.random() * 0.85)
+                if math.random() < 0.22 then
+                    col = col:Lerp(Color3.fromRGB(255, 255, 255), 0.55)
+                end
+            end
+            local part = new("Part", {
+                Name = "Star",
+                Shape = Enum.PartType.Ball,
+                Size = Vector3.new(size, size, size),
+                Color = col,
+                Material = Enum.Material.Neon,
+                Transparency = 0.12 + math.random() * 0.5,
+                Anchored = true,
+                CanCollide = false,
+                CanQuery = false,
+                CanTouch = false,
+                CastShadow = false,
+            }, model)
+            part.CFrame = CFrame.new(math.cos(angle) * r, y, math.sin(angle) * r)
+        end
+
+        for i = 1, 14 do
+            local angle = math.random() * math.pi * 2
+            local r = def.radius * (0.2 + math.random() * 0.75)
+            local size = def.radius * (0.22 + math.random() * 0.3)
+            local part = new("Part", {
+                Name = "Nebula",
+                Shape = Enum.PartType.Ball,
+                Size = Vector3.new(size, size * 0.35, size),
+                Color = ca:Lerp(cb, math.random()),
+                Material = Enum.Material.Neon,
+                Transparency = 0.82 + math.random() * 0.12,
+                Anchored = true,
+                CanCollide = false,
+                CanQuery = false,
+                CanTouch = false,
+                CastShadow = false,
+            }, model)
+            part.CFrame = CFrame.new(math.cos(angle) * r, 0, math.sin(angle) * r)
+        end
+
+        deep.galaxies[#deep.galaxies + 1] = {
+            model = model,
+            dir = def.dir.Unit,
+            dist = def.dist,
+            tiltX = def.tiltX,
+            tiltZ = def.tiltZ,
+            spin = math.random() * math.pi * 2,
+            spinSpeed = def.spin,
+        }
+    end
+
+    skyState.deep = deep
+end
+
+function SKY_STYLES.void(style)
+    local model = new("Model", { Name = "BenchVoid" }, fxFolder)
+    local ca = style.colorA or Color3.fromRGB(80, 120, 255)
+    local cb = style.colorB or Color3.fromRGB(120, 60, 200)
+    local radius = 560
+
+    local hole = new("Part", {
+        Name = "Horizon",
+        Shape = Enum.PartType.Ball,
+        Size = Vector3.new(radius, radius, radius),
+        Color = Color3.fromRGB(2, 2, 5),
+        Material = Enum.Material.SmoothPlastic,
+        Transparency = 0,
+        Anchored = true,
+        CanCollide = false,
+        CanQuery = false,
+        CanTouch = false,
+        CastShadow = false,
+    }, model)
+    hole.CFrame = CFrame.new(0, 0, 0)
+
+    local lens = new("Part", {
+        Name = "Lens",
+        Shape = Enum.PartType.Ball,
+        Size = Vector3.new(radius * 1.18, radius * 1.18, radius * 1.18),
+        Color = Color3.fromRGB(90, 60, 160),
+        Material = Enum.Material.Neon,
+        Transparency = 0.72,
+        Anchored = true,
+        CanCollide = false,
+        CanQuery = false,
+        CanTouch = false,
+        CastShadow = false,
+    }, model)
+    lens.CFrame = CFrame.new(0, 0, 0)
+
+    for i = 1, 96 do
+        local angle = (i / 96) * math.pi * 2
+        local r = radius * (0.72 + math.random() * 0.55)
+        local len = radius * (0.16 + math.random() * 0.22)
+        local width = radius * (0.035 + math.random() * 0.06)
+        local pos = Vector3.new(math.cos(angle) * r, (math.random() - 0.5) * 10, math.sin(angle) * r)
+        local tangent = Vector3.new(-math.sin(angle), 0, math.cos(angle))
+        local col = Color3.fromRGB(255, 190, 110):Lerp(cb, math.random() * 0.75)
+        if math.random() < 0.18 then
+            col = Color3.fromRGB(255, 255, 255)
+        end
+        local part = new("Part", {
+            Name = "Disc",
+            Size = Vector3.new(width, radius * 0.012, len),
+            Color = col,
+            Material = Enum.Material.Neon,
+            Transparency = 0.05 + math.random() * 0.4,
+            Anchored = true,
+            CanCollide = false,
+            CanQuery = false,
+            CanTouch = false,
+            CastShadow = false,
+        }, model)
+        part.CFrame = CFrame.lookAt(pos, pos + tangent)
+    end
+
+    for i = 1, 20 do
+        local angle = math.random() * math.pi * 2
+        local r = radius * (1.35 + math.random() * 0.4)
+        local size = radius * (0.1 + math.random() * 0.18)
+        local part = new("Part", {
+            Name = "Halo",
+            Shape = Enum.PartType.Ball,
+            Size = Vector3.new(size, size * 0.25, size),
+            Color = ca:Lerp(cb, math.random()),
+            Material = Enum.Material.Neon,
+            Transparency = 0.78 + math.random() * 0.16,
+            Anchored = true,
+            CanCollide = false,
+            CanQuery = false,
+            CanTouch = false,
+            CastShadow = false,
+        }, model)
+        part.CFrame = CFrame.new(math.cos(angle) * r, 0, math.sin(angle) * r)
+    end
+
+    for i = 1, 8 do
+        local dir = (i % 2 == 0) and 1 or -1
+        local len = radius * (0.8 + math.random() * 0.6)
+        local part = new("Part", {
+            Name = "Jet",
+            Size = Vector3.new(radius * 0.05, len, radius * 0.05),
+            Color = ca:Lerp(Color3.fromRGB(255, 255, 255), 0.5),
+            Material = Enum.Material.Neon,
+            Transparency = 0.35 + math.random() * 0.35,
+            Anchored = true,
+            CanCollide = false,
+            CanQuery = false,
+            CanTouch = false,
+            CastShadow = false,
+        }, model)
+        part.CFrame = CFrame.new(0, dir * (radius * 0.5 + len * 0.5), 0)
+            * CFrame.Angles(0, math.random() * math.pi, 0)
+    end
+
+    skyState.deep = {
+        void = {
+            model = model,
+            dir = Vector3.new(0.18, 0.45, -0.87).Unit,
+            dist = 5200,
+            tiltX = math.rad(-58),
+            tiltZ = math.rad(12),
+            spin = 0,
+        },
+    }
 end
 
 local function enableSky()
@@ -4503,7 +4850,7 @@ local function enableSky()
     end
 
     skyState.newSky = new("Sky", {
-        StarCount = style.stars,
+        StarCount = math.clamp(style.stars or 0, 0, 3000),
         CelestialBodiesShown = style.bodies or false,
     }, Lighting)
     skyState.newAtmo = new("Atmosphere", {
@@ -4520,13 +4867,27 @@ local function enableSky()
         Contrast = style.contrast,
     }, Lighting)
 
+    local light = Config.sky.light or 1
+    local function scaled(c)
+        return Color3.new(
+            math.clamp(c.R * light, 0, 1),
+            math.clamp(c.G * light, 0, 1),
+            math.clamp(c.B * light, 0, 1)
+        )
+    end
+    skyState.light = light
     Lighting.ClockTime = style.clock
-    Lighting.Ambient = style.ambient
-    Lighting.OutdoorAmbient = style.outdoor
-    Lighting.Brightness = style.brightness
+    Lighting.Ambient = scaled(style.ambient)
+    Lighting.OutdoorAmbient = scaled(style.outdoor)
+    Lighting.Brightness = style.brightness * light
     Lighting.FogEnd = style.fog
 
     makeAurora(style)
+    if style.name == "Galaxy" then
+        SKY_STYLES.galaxy(style)
+    elseif style.name == "Void" then
+        SKY_STYLES.void(style)
+    end
 end
 
 local function disableSky()
@@ -4542,6 +4903,19 @@ local function disableSky()
         end
     end
     auroraRays = {}
+    if skyState.deep then
+        if skyState.deep.galaxies then
+            for _, g in ipairs(skyState.deep.galaxies) do
+                if g.model then
+                    g.model:Destroy()
+                end
+            end
+        end
+        if skyState.deep.void and skyState.deep.void.model then
+            skyState.deep.void.model:Destroy()
+        end
+        skyState.deep = nil
+    end
     if skyState.newSky then
         skyState.newSky:Destroy()
     end
@@ -4627,13 +5001,14 @@ local function stormFlash()
         Color = Color3.fromRGB(200, 220, 255),
     }, p0)
 
+    local baseBrightness = style.brightness * (Config.sky.light or 1)
     TweenService:Create(Lighting, TweenInfo.new(0.08), {
-        Brightness = math.min(style.brightness + 5, 8),
+        Brightness = math.min(baseBrightness + 5, 9),
     }):Play()
     task.delay(0.12, function()
         if skyState then
             TweenService:Create(Lighting, TweenInfo.new(0.4), {
-                Brightness = style.brightness,
+                Brightness = baseBrightness,
             }):Play()
         end
     end)
@@ -4654,6 +5029,21 @@ local function updateAurora(dt)
     enableSky()
 
     local style = skyStyle()
+    if skyState and skyState.light ~= Config.sky.light then
+        skyState.light = Config.sky.light
+        local mul = Config.sky.light or 1
+        Lighting.Brightness = style.brightness * mul
+        Lighting.Ambient = Color3.new(
+            math.clamp(style.ambient.R * mul, 0, 1),
+            math.clamp(style.ambient.G * mul, 0, 1),
+            math.clamp(style.ambient.B * mul, 0, 1)
+        )
+        Lighting.OutdoorAmbient = Color3.new(
+            math.clamp(style.outdoor.R * mul, 0, 1),
+            math.clamp(style.outdoor.G * mul, 0, 1),
+            math.clamp(style.outdoor.B * mul, 0, 1)
+        )
+    end
     local cam = workspace.CurrentCamera
     if not cam then
         return
@@ -4696,6 +5086,8 @@ local function updateAurora(dt)
                 + Vector3.new(0, style.rays.bottom + math.cos(t * 0.8 + entry.index) * 90, 0)
             beam.Width0 = style.rays.width * (0.7 + 0.5 * math.sin(t * 1.1 + entry.index))
             beam.Width1 = beam.Width0 * 1.9
+            beam.CurveSize0 = 24 + math.sin(t * 0.9 + phase) * 46
+            beam.CurveSize1 = -18 + math.cos(t * 0.7 + phase) * 38
         else
             local half = math.max(style.bands.count / 2, 1)
             local u = (entry.index - (style.bands.count + 1) / 2) / half
@@ -4710,6 +5102,9 @@ local function updateAurora(dt)
                 + Vector3.new(0, style.bands.bottom + math.cos(t * 0.5 + phase) * 70, 0)
             beam.Width0 = style.bands.width * (0.8 + 0.3 * math.sin(t * 0.8 + entry.index))
             beam.Width1 = beam.Width0 * 1.45
+            beam.CurveSize0 = 140 + math.sin(t * 0.62 + phase) * 220
+            beam.CurveSize1 = -120 + math.cos(t * 0.48 + phase) * 180
+            beam.TextureSpeed = 0.02 + (Config.sky.speed / 100) * 0.09
         end
 
         local fade = 0.42 + 0.22 * math.sin(t * 1.3 + phase)
@@ -4731,6 +5126,34 @@ local function updateAurora(dt)
             ColorSequenceKeypoint.new(0.45, c0),
             ColorSequenceKeypoint.new(1, c1),
         })
+    end
+
+    local deep = skyState and skyState.deep
+    if deep then
+        local camPos = cam.CFrame.Position
+        if deep.galaxies then
+            for _, g in ipairs(deep.galaxies) do
+                if g.model and g.model.Parent then
+                    local pos = camPos + g.dir * g.dist
+                    g.spin = g.spin + (dt or 0.016) * g.spinSpeed
+                    g.model:PivotTo(
+                        CFrame.new(pos)
+                            * CFrame.Angles(g.tiltX, 0, g.tiltZ)
+                            * CFrame.Angles(0, g.spin, 0)
+                    )
+                end
+            end
+        end
+        local void = deep.void
+        if void and void.model and void.model.Parent then
+            local pos = camPos + void.dir * void.dist
+            void.spin = void.spin + (dt or 0.016) * 0.05
+            void.model:PivotTo(
+                CFrame.new(pos)
+                    * CFrame.Angles(void.tiltX, 0, void.tiltZ)
+                    * CFrame.Angles(0, void.spin, 0)
+            )
+        end
     end
 
     if style.lightning then
@@ -4798,6 +5221,79 @@ local function shockwave(pos, color, startRadius, endRadius, duration)
     end)
 end
 
+local function jumpRing(pos, col, duration, radius)
+    local segments = 32
+    local model = new("Model", { Name = "BenchJumpRing" }, fxFolder)
+    local items = {}
+    local arc = (2 * math.pi * radius) / segments * 1.18
+    for i = 1, segments do
+        local angle = (i / segments) * math.pi * 2
+        items[i] = {
+            angle = angle,
+            part = new("Part", {
+                Anchored = true,
+                CanCollide = false,
+                CanQuery = false,
+                CanTouch = false,
+                CastShadow = false,
+                Material = Enum.Material.Neon,
+                Color = col,
+                Size = Vector3.new(arc, 0.06, 0.16),
+                CFrame = CFrame.new(pos + Vector3.new(0, 0.08, 0))
+                    * CFrame.Angles(0, angle, 0)
+                    * CFrame.new(0, 0, radius),
+                Transparency = 0.12,
+            }, model),
+        }
+    end
+    new("PointLight", {
+        Brightness = 2.2,
+        Range = radius * 2.4,
+        Color = col,
+    }, new("Part", {
+        Anchored = true,
+        CanCollide = false,
+        CanQuery = false,
+        CanTouch = false,
+        CastShadow = false,
+        Transparency = 1,
+        Size = Vector3.new(0.2, 0.2, 0.2),
+        CFrame = CFrame.new(pos + Vector3.new(0, 0.3, 0)),
+    }, model))
+
+    local start = tick()
+    local conn
+    conn = RunService.RenderStepped:Connect(function()
+        if not model.Parent then
+            conn:Disconnect()
+            return
+        end
+        local age = tick() - start
+        local a = math.clamp(age / duration, 0, 1)
+        local pulse = 0.5 + 0.5 * math.sin(age * 6.2)
+        local fade
+        if a < 0.55 then
+            fade = 0.08 + 0.14 * pulse
+        else
+            fade = 0.22 + ((a - 0.55) / 0.45) * 0.78
+        end
+        local grow = 1 + 0.16 * math.min(a / 0.22, 1)
+        local base = CFrame.new(pos + Vector3.new(0, 0.08, 0))
+            * CFrame.Angles(0, age * 0.4, 0)
+        for _, item in ipairs(items) do
+            item.part.CFrame = base
+                * CFrame.Angles(0, item.angle, 0)
+                * CFrame.new(0, 0, radius * grow)
+            item.part.Transparency = math.clamp(fade, 0, 1)
+            item.part.Size = Vector3.new(arc * grow, 0.06, 0.16)
+        end
+        if a >= 1 then
+            conn:Disconnect()
+            model:Destroy()
+        end
+    end)
+end
+
 local function jumpFx()
     if not Config.jump.enabled then
         return
@@ -4812,6 +5308,10 @@ local function jumpFx()
         and Color3.fromHSV((tick() * 0.6) % 1, 0.85, 1)
         or Config.jump.color
     local pos = root.Position - Vector3.new(0, 2.7, 0)
+
+    if Config.jump.ring then
+        jumpRing(pos, col, Config.jump.ringTime or 3, Config.jump.ringSize or 5)
+    end
 
     shockwave(pos, col, 1.4, 14, 0.55)
     task.delay(0.07, function()
@@ -4901,6 +5401,7 @@ local walkRootAttach = nil
 local walkEmitters = {}
 local walkAura = nil
 local walkChar = nil
+local walkExtra = {}
 
 local WALK_STYLES = {
     {
@@ -5019,6 +5520,10 @@ local function clearWalkTrail()
         walkRootAttach:Destroy()
         walkRootAttach = nil
     end
+    if walkExtra.rear then
+        walkExtra.rear:Destroy()
+    end
+    walkExtra = {}
     walkEmitters = {}
     walkAura = nil
     walkChar = nil
@@ -5034,14 +5539,67 @@ local function buildWalkTrail(char)
     local style = walkStyle()
 
     walkAttach0 = new("Attachment", {
-        Position = Vector3.new(0.65, -2.4, 0),
+        Position = Vector3.new(0.7, -2.5, 0.85),
     }, root)
     walkAttach1 = new("Attachment", {
-        Position = Vector3.new(-0.65, -2.4, 0),
+        Position = Vector3.new(-0.7, -2.5, 0.85),
     }, root)
     walkRootAttach = new("Attachment", {
         Position = Vector3.new(0, -0.4, 0),
     }, root)
+
+    walkExtra = {}
+    local rear = new("Attachment", {
+        Position = Vector3.new(0, -1.35, 1.15),
+    }, root)
+    walkExtra.rear = rear
+    walkExtra.rearFlame = new("ParticleEmitter", {
+        Color = ColorSequence.new(style.colorA, style.colorB),
+        Size = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 1.2),
+            NumberSequenceKeypoint.new(1, 0.08),
+        }),
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.04),
+            NumberSequenceKeypoint.new(0.6, 0.35),
+            NumberSequenceKeypoint.new(1, 1),
+        }),
+        Lifetime = NumberRange.new(0.45, 0.95),
+        Speed = NumberRange.new(2, 5),
+        SpreadAngle = Vector2.new(32, 32),
+        Acceleration = Vector3.new(0, 7, 0),
+        Rate = 0,
+        LightEmission = 1,
+        Texture = style.particleTexture,
+        Rotation = NumberRange.new(0, 360),
+        RotSpeed = NumberRange.new(-180, 180),
+        Enabled = false,
+    }, rear)
+    walkExtra.rearSparks = new("ParticleEmitter", {
+        Color = ColorSequence.new(style.colorA, style.colorB),
+        Size = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.35),
+            NumberSequenceKeypoint.new(1, 0),
+        }),
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.08),
+            NumberSequenceKeypoint.new(1, 1),
+        }),
+        Lifetime = NumberRange.new(0.35, 0.7),
+        Speed = NumberRange.new(4, 9),
+        SpreadAngle = Vector2.new(42, 42),
+        Acceleration = Vector3.new(0, 3, 0),
+        Rate = 0,
+        LightEmission = 1,
+        Texture = "rbxasset://textures/particles/sparkles_main.dds",
+        Enabled = false,
+    }, rear)
+    walkExtra.rearLight = new("PointLight", {
+        Brightness = 0,
+        Range = 11,
+        Color = style.colorA,
+    }, rear)
+    walkExtra.boltAcc = 0
 
     walkTrail = new("Trail", {
         Attachment0 = walkAttach0,
@@ -5058,8 +5616,8 @@ local function buildWalkTrail(char)
             NumberSequenceKeypoint.new(1, 0.12),
         }),
         Transparency = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 0.05),
-            NumberSequenceKeypoint.new(0.65, 0.45),
+            NumberSequenceKeypoint.new(0, 0.02),
+            NumberSequenceKeypoint.new(0.65, 0.28),
             NumberSequenceKeypoint.new(1, 1),
         }),
         Color = ColorSequence.new(style.colorA, style.colorB),
@@ -5081,8 +5639,8 @@ local function buildWalkTrail(char)
             NumberSequenceKeypoint.new(1, 0.3),
         }),
         Transparency = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 0.55),
-            NumberSequenceKeypoint.new(0.7, 0.8),
+            NumberSequenceKeypoint.new(0, 0.35),
+            NumberSequenceKeypoint.new(0.7, 0.62),
             NumberSequenceKeypoint.new(1, 1),
         }),
         Color = ColorSequence.new(style.colorA, style.colorB),
@@ -5098,7 +5656,7 @@ local function buildWalkTrail(char)
                 NumberSequenceKeypoint.new(1, 0.05),
             }),
             Transparency = NumberSequence.new({
-                NumberSequenceKeypoint.new(0, 0.1),
+                NumberSequenceKeypoint.new(0, 0.02),
                 NumberSequenceKeypoint.new(1, 1),
             }),
             Lifetime = NumberRange.new(0.35, 0.75),
@@ -5139,9 +5697,95 @@ local function buildWalkTrail(char)
         Range = 9,
         Color = style.colorA,
     }, root)
+
+    walkExtra.spawnBolt = function(root, ca, cb)
+        local model = new("Model", { Name = "BenchWalkBolt" }, fxFolder)
+        local origin = root.CFrame * CFrame.new(
+            (math.random() - 0.5) * 2.4,
+            1.1 + math.random() * 1.2,
+            1.0 + math.random() * 1.4
+        )
+        local target = root.CFrame * CFrame.new(
+            (math.random() - 0.5) * 5.5,
+            -2.8 + math.random() * 1.2,
+            2.4 + math.random() * 3.2
+        )
+        local a = origin.Position
+        local b = target.Position
+        local points = { a }
+        local segments = 6
+        for i = 1, segments - 1 do
+            local t = i / segments
+            local base = a:Lerp(b, t)
+            points[#points + 1] = base + Vector3.new(
+                (math.random() - 0.5) * 1.4,
+                (math.random() - 0.5) * 0.8,
+                (math.random() - 0.5) * 1.0
+            )
+        end
+        points[#points + 1] = b
+        local parts = {}
+        for i = 1, #points - 1 do
+            local p0, p1 = points[i], points[i + 1]
+            local mid = (p0 + p1) * 0.5
+            local len = (p1 - p0).Magnitude
+            if len > 0.05 then
+                parts[#parts + 1] = new("Part", {
+                    Anchored = true,
+                    CanCollide = false,
+                    CanQuery = false,
+                    CanTouch = false,
+                    CastShadow = false,
+                    Material = Enum.Material.Neon,
+                    Color = ca:Lerp(Color3.new(1, 1, 1), 0.55),
+                    Size = Vector3.new(0.14, 0.14, len),
+                    CFrame = CFrame.lookAt(mid, p1),
+                    Transparency = 0.05,
+                }, model)
+            end
+        end
+        local lightPart = new("Part", {
+            Anchored = true,
+            CanCollide = false,
+            CanQuery = false,
+            CanTouch = false,
+            CastShadow = false,
+            Transparency = 1,
+            Size = Vector3.new(0.2, 0.2, 0.2),
+            CFrame = CFrame.new(a),
+        }, model)
+        local light = new("PointLight", {
+            Brightness = 5,
+            Range = 12,
+            Color = ca,
+        }, lightPart)
+        local start = tick()
+        local conn
+        conn = RunService.RenderStepped:Connect(function()
+            if not model.Parent then
+                conn:Disconnect()
+                return
+            end
+            local age = tick() - start
+            local fade = math.clamp(age / 0.22, 0, 1)
+            for _, part in ipairs(parts) do
+                part.Transparency = 0.05 + fade * 0.95
+                part.Size = Vector3.new(
+                    0.14 * (1 - fade * 0.7),
+                    0.14 * (1 - fade * 0.7),
+                    part.Size.Z
+                )
+            end
+            light.Brightness = 5 * (1 - fade)
+            if fade >= 1 then
+                conn:Disconnect()
+                model:Destroy()
+            end
+        end)
+    end
 end
 
-local function updateWalk()
+local function updateWalk(dt)
     local style = walkStyle()
 
     if not Config.walk.enabled then
@@ -5164,6 +5808,17 @@ local function updateWalk()
         if walkLight and walkLight.Parent then
             walkLight.Brightness = 0
         end
+        if walkExtra.rearFlame then
+            walkExtra.rearFlame.Rate = 0
+            walkExtra.rearFlame.Enabled = false
+        end
+        if walkExtra.rearSparks then
+            walkExtra.rearSparks.Rate = 0
+            walkExtra.rearSparks.Enabled = false
+        end
+        if walkExtra.rearLight then
+            walkExtra.rearLight.Brightness = 0
+        end
         return
     end
 
@@ -5185,11 +5840,11 @@ local function updateWalk()
     local moving = hum.MoveDirection.Magnitude > 0.1 or speed > 2
     local boost = math.clamp(speed / 22, 0, 1)
     local power = 0.6 + (Config.walk.power or 1) * 0.4
-    local width = style.width * power * (1 + boost * 0.9)
+    local width = style.width * power * (Config.walk.width or 1) * (1 + boost * 0.9)
 
     walkTrail.Enabled = moving
     walkGlow.Enabled = moving
-    walkTrail.Lifetime = style.lifetime * (1 + boost * 0.5)
+    walkTrail.Lifetime = style.lifetime * (Config.walk.length or 1) * (1 + boost * 0.5)
     walkGlow.Lifetime = walkTrail.Lifetime * 1.6
     walkTrail.WidthScale = NumberSequence.new({
         NumberSequenceKeypoint.new(0, width),
@@ -5223,7 +5878,7 @@ local function updateWalk()
     walkTrail.Texture = style.trailTexture
     walkGlow.Texture = style.glowTexture
 
-    local rate = math.min(style.rate * power * (1 + boost), 180)
+    local rate = math.min(style.rate * power * (Config.walk.rate or 1) * (1 + boost), 240)
     for _, emitter in ipairs(walkEmitters) do
         if emitter and emitter.Parent then
             emitter.Color = seq
@@ -5246,8 +5901,79 @@ local function updateWalk()
 
     if walkLight and walkLight.Parent then
         walkLight.Color = ca
-        walkLight.Brightness = moving and (1.2 + boost * 2.2) or 0
+        walkLight.Brightness = moving
+            and (1.2 + boost * 2.2) * (Config.walk.brightness or 1.5)
+            or 0
         walkLight.Range = 8 + boost * 4
+    end
+
+    local isFire = style.name == "Fire"
+    local isLightning = style.name == "Lightning"
+    local brightness = Config.walk.brightness or 1.5
+    local rearFlame = walkExtra.rearFlame
+    if rearFlame and rearFlame.Parent then
+        rearFlame.Texture = isFire
+            and "rbxasset://textures/particles/fire_main.dds"
+            or style.particleTexture
+        rearFlame.Color = seq
+        rearFlame.Rate = moving
+            and math.min(style.rate * power * (Config.walk.rate or 1) * 0.8, 200)
+            or 0
+        rearFlame.Enabled = moving
+        rearFlame.Size = NumberSequence.new({
+            NumberSequenceKeypoint.new(
+                0,
+                (isFire and 1.7 or 1.0) * brightness * 0.75
+            ),
+            NumberSequenceKeypoint.new(1, 0.08),
+        })
+        rearFlame.Speed = NumberRange.new(
+            (isFire and 1.8 or 4) * (1 + boost * 0.5),
+            (isFire and 4.5 or 9) * (1 + boost * 0.5)
+        )
+        rearFlame.Acceleration = Vector3.new(
+            0,
+            isFire and 8 or (style.accelY or 3),
+            0
+        )
+    end
+    local rearSparks = walkExtra.rearSparks
+    if rearSparks and rearSparks.Parent then
+        rearSparks.Color = seq
+        rearSparks.Rate = moving
+            and math.min(style.rate * power * (Config.walk.rate or 1) * 0.5, 100)
+            or 0
+        rearSparks.Enabled = moving
+        rearSparks.Speed = NumberRange.new(
+            3 * (1 + boost * 0.6),
+            (isLightning and 14 or 8) * (1 + boost * 0.6)
+        )
+        rearSparks.Size = NumberSequence.new({
+            NumberSequenceKeypoint.new(
+                0,
+                (isLightning and 0.5 or 0.3) * brightness
+            ),
+            NumberSequenceKeypoint.new(1, 0),
+        })
+    end
+    local rearLight = walkExtra.rearLight
+    if rearLight and rearLight.Parent then
+        rearLight.Color = ca
+        rearLight.Brightness = moving
+            and (isFire and 3.2 or 1.6) * brightness
+            or 0
+        rearLight.Range = 10 + boost * 4
+    end
+    if isLightning and moving then
+        walkExtra.boltAcc = (walkExtra.boltAcc or 0) + (dt or 0.016)
+        if walkExtra.boltAcc >= 0.26 + math.random() * 0.34 then
+            walkExtra.boltAcc = 0
+            if walkExtra.spawnBolt then
+                walkExtra.spawnBolt(root, ca, cb)
+            end
+        end
+    else
+        walkExtra.boltAcc = 0
     end
 end
 
@@ -5704,32 +6430,67 @@ end
 local function updateOrbit(dt)
     dt = dt or 0.016
     local now = tick()
+    local radius = Config.orbit.radius or 3.5
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    local persistent = Config.orbit.persistent and Config.orbit.enabled
+    if ui.orbitPersistentPrev and not persistent then
+        clearOrbit()
+    end
+    ui.orbitPersistentPrev = persistent
+
     for i = #orbitEntities, 1, -1 do
         local entity = orbitEntities[i]
         local age = now - entity.t0
-        local a = age / entity.life
-        if not entity.model or not entity.model.Parent or a >= 1 then
+        local a = entity.life and (age / entity.life) or 0
+        if not entity.model or not entity.model.Parent
+            or (not persistent and a >= 1) then
             if entity.model then
                 entity.model:Destroy()
             end
             table.remove(orbitEntities, i)
         else
+            local modelCF
             local fade = math.clamp(a * a, 0, 1)
-
-            if entity.kind == 2 then
+            if persistent and root then
+                if not entity.orbitRadius then
+                    local rel = entity.base - root.Position
+                    entity.orbitRadius = math.clamp(
+                        rel.Magnitude,
+                        0.5,
+                        radius * 1.6
+                    )
+                    entity.orbitAngle = math.atan2(rel.Z, rel.X)
+                    entity.orbitY = math.clamp(rel.Y, -3, 3)
+                    entity.orbitSpeed = 0.12 + math.random() * 0.22
+                end
+                local angle = entity.orbitAngle + now * entity.orbitSpeed
+                local r = entity.orbitRadius
+                local y = entity.orbitY + math.sin(now * 1.1 + entity.phase) * 0.35
+                local pos = root.Position + Vector3.new(
+                    math.cos(angle) * r,
+                    y,
+                    math.sin(angle) * r
+                )
+                local tangent = Vector3.new(-math.sin(angle), 0, math.cos(angle))
+                modelCF = CFrame.lookAt(pos, pos + tangent)
+                if entity.kind == 1 then
+                    modelCF = modelCF * CFrame.Angles(now * 2, now * 2.6, now * 1.4)
+                end
+            elseif persistent then
+                modelCF = CFrame.new(entity.base)
+            elseif entity.kind == 2 then
                 local pos = entity.base + Vector3.new(
                     math.sin(age * 0.6 + entity.phase) * 0.35,
                     age * 1.1 + math.sin(age * 1.8 + entity.phase) * 0.25,
                     math.cos(age * 0.5 + entity.phase) * 0.35
                 )
-                entity.model:PivotTo(
-                    CFrame.new(pos)
-                        * CFrame.Angles(
-                            0,
-                            age * 0.7 + entity.phase,
-                            math.sin(age * 1.3 + entity.phase) * 0.08
-                        )
-                )
+                modelCF = CFrame.new(pos)
+                    * CFrame.Angles(
+                        0,
+                        age * 0.7 + entity.phase,
+                        math.sin(age * 1.3 + entity.phase) * 0.08
+                    )
             elseif entity.kind == 3 then
                 local pos = entity.base + Vector3.new(
                     math.sin(age * 1.7 + entity.phase) * 1.3,
@@ -5746,42 +6507,56 @@ local function updateOrbit(dt)
                 if dir.Magnitude < 0.001 then
                     dir = Vector3.new(0, 0, 1)
                 end
-                local cf = CFrame.lookAt(pos, pos + dir.Unit)
-                entity.model:PivotTo(cf)
-                if entity.wingL then
-                    local flap = math.sin(age * 34 + entity.phase) * 0.55
-                    entity.wingL.CFrame = cf * entity.wingLOffset
-                        * CFrame.Angles(0, 0, flap)
-                    entity.wingR.CFrame = cf * entity.wingROffset
-                        * CFrame.Angles(0, 0, -flap)
-                end
+                modelCF = CFrame.lookAt(pos, pos + dir.Unit)
             else
                 local pos = entity.base + Vector3.new(
                     math.sin(age * 0.9 + entity.phase) * 0.4,
                     age * 1.6,
                     math.cos(age * 0.8 + entity.phase) * 0.4
                 )
-                entity.model:PivotTo(
-                    CFrame.new(pos)
-                        * CFrame.Angles(age * 2.2, age * 3.1, age * 1.7)
-                )
+                modelCF = CFrame.new(pos)
+                    * CFrame.Angles(age * 2.2, age * 3.1, age * 1.7)
             end
 
-            for _, entry in ipairs(entity.parts) do
-                entry.part.Transparency = math.clamp(
-                    entry.base + (1 - entry.base) * fade,
-                    0,
-                    1
-                )
+            entity.model:PivotTo(modelCF)
+            if entity.wingL then
+                local flap = math.sin(age * 34 + entity.phase) * 0.55
+                entity.wingL.CFrame = modelCF * entity.wingLOffset
+                    * CFrame.Angles(0, 0, flap)
+                entity.wingR.CFrame = modelCF * entity.wingROffset
+                    * CFrame.Angles(0, 0, -flap)
             end
-            for _, entry in ipairs(entity.lights) do
-                entry.light.Brightness = entry.base * (1 - fade)
-            end
-            if entity.trail and a > 0.6 then
-                entity.trail.Enabled = false
-            end
-            if entity.emitter and a > 0.65 then
-                entity.emitter.Enabled = false
+
+            if persistent then
+                for _, entry in ipairs(entity.parts) do
+                    entry.part.Transparency = entry.base
+                end
+                for _, entry in ipairs(entity.lights) do
+                    entry.light.Brightness = entry.base
+                end
+                if entity.trail then
+                    entity.trail.Enabled = true
+                end
+                if entity.emitter then
+                    entity.emitter.Enabled = true
+                end
+            else
+                for _, entry in ipairs(entity.parts) do
+                    entry.part.Transparency = math.clamp(
+                        entry.base + (1 - entry.base) * fade,
+                        0,
+                        1
+                    )
+                end
+                for _, entry in ipairs(entity.lights) do
+                    entry.light.Brightness = entry.base * (1 - fade)
+                end
+                if entity.trail and a > 0.6 then
+                    entity.trail.Enabled = false
+                end
+                if entity.emitter and a > 0.65 then
+                    entity.emitter.Enabled = false
+                end
             end
         end
     end
@@ -5791,49 +6566,52 @@ local function updateOrbit(dt)
     end
 
     local kind = Config.orbit.kind
-    local cap = (kind == 2) and 12 or ((kind == 3) and 16 or 20)
+    local count = math.max(Config.orbit.count or 8, 1)
+    local baseCap = (kind == 2) and 12 or ((kind == 3) and 16 or 20)
+    local cap = math.floor(baseCap * (1 + radius / 20) * (0.55 + count / 12))
+    cap = math.clamp(cap, baseCap, 90)
+    if #orbitEntities > cap then
+        for i = #orbitEntities, cap + 1, -1 do
+            local entity = orbitEntities[i]
+            if entity and entity.model then
+                entity.model:Destroy()
+            end
+            table.remove(orbitEntities, i)
+        end
+    end
     if #orbitEntities >= cap then
         return
     end
 
     orbitAcc = orbitAcc + dt
     local baseInterval = (kind == 2) and 2.4 or ((kind == 3) and 1.5 or 1)
-    local interval = baseInterval / math.max(Config.orbit.count, 1)
+    local interval = baseInterval / math.max(count * (1 + radius / 28), 1)
+    interval = math.max(interval, 0.05)
     if orbitAcc < interval then
         return
     end
     orbitAcc = 0
 
-    local char = LocalPlayer.Character
-    local root = char and char:FindFirstChild("HumanoidRootPart")
     if not root then
         return
     end
 
-    local radius = Config.orbit.radius
     local scale = 0.7 + (Config.orbit.size or 1) * 0.3
     local angle = math.random() * math.pi * 2
     local dist = radius * (0.45 + math.random() * 0.75)
-    local base
+    local orbitY
     if kind == 2 then
-        base = root.Position + Vector3.new(
-            math.cos(angle) * dist,
-            -2.4 + math.random() * 0.8,
-            math.sin(angle) * dist
-        )
+        orbitY = -2.4 + math.random() * 0.8
     elseif kind == 3 then
-        base = root.Position + Vector3.new(
-            math.cos(angle) * dist,
-            -0.5 + math.random() * 2.5,
-            math.sin(angle) * dist
-        )
+        orbitY = -0.5 + math.random() * 2.5
     else
-        base = root.Position + Vector3.new(
-            math.cos(angle) * dist,
-            -1 + math.random() * 3,
-            math.sin(angle) * dist
-        )
+        orbitY = -1 + math.random() * 3
     end
+    local base = root.Position + Vector3.new(
+        math.cos(angle) * dist,
+        orbitY,
+        math.sin(angle) * dist
+    )
 
     local col = orbitColor()
     if kind == 2 then
@@ -5843,8 +6621,15 @@ local function updateOrbit(dt)
     else
         spawnSparkle(base, col, scale)
     end
+    local entity = orbitEntities[#orbitEntities]
+    if entity then
+        entity.orbitRadius = dist
+        entity.orbitY = orbitY
+        entity.orbitAngle = angle
+        entity.orbitSpeed = (0.10 + math.random() * 0.22)
+            * (kind == 3 and 1.8 or 1)
+    end
 end
-
 
 --// cosmetic engine + music player
 local function initCosmeticsAndMusic()
@@ -5863,6 +6648,11 @@ local function initCosmeticsAndMusic()
     local previewPitch = 0
     local previewDrag = nil
     local previewRing = nil
+    local previewHand = nil
+    local previewHandShown = false
+    local previewBodyParts = {}
+    local previewItemTarget = Vector3.new(0, 0.8, 0)
+    local previewItemRadius = 7
     local saveAcc = 0
 
     local function addCosPart(model, parts, size, offset, color, transparency, shape, extra)
@@ -6833,8 +7623,75 @@ local function initCosmeticsAndMusic()
 
     local WEAPON_KEYS = { trident = true, thorhammer = true, scythe = true }
 
-    -- goc cam: dung chieu cao cua tay, hoi nghieng ra truoc + ra ngoai
-    local WEAPON_GRIP = CFrame.Angles(math.rad(-12), 0, math.rad(7))
+    -- Roll quanh truc doc cua vu khi cho tung mon / tung kieu cam.
+    -- 1 = Forward (ngang, chi ra truoc), 2 = Side (ngang, quay ra ngoai),
+    -- 3 = Up (dung, giong cam giao).
+    local WEAPON_ROLL = {
+        trident = { 0, 0, 0 },
+        thorhammer = { 90, 90, 0 },
+        scythe = { 180, 180, 0 },
+    }
+
+    -- Tra ve CFrame goc cua vu khi. Goc toa do (0,0,0) cua model la diem cam.
+    -- Dung huong cua nhan vat (root) thay vi huong ban tay de vu khi luon
+    -- nam ngang on dinh, khong bi xoay lung tung theo animation tay.
+    local function weaponBase(char, hand, grip, key)
+        if not char or not hand then
+            return nil
+        end
+        local root = char:FindFirstChild("HumanoidRootPart")
+            or char:FindFirstChild("UpperTorso")
+            or char:FindFirstChild("Torso")
+        if not root then
+            return nil
+        end
+        local gripCF = hand.CFrame * (grip or CFrame.new())
+        local mode = math.floor(math.clamp(Config.cosmetic.hold or 1, 1, 3))
+        local pos = gripCF.Position
+        local cf
+        if mode == 3 then
+            -- Up: +Y = len tren, +Z = huong mat
+            pos = pos
+                + root.CFrame.LookVector * 0.05
+                + root.CFrame.RightVector * 0.08
+            local left = -root.CFrame.RightVector
+            cf = CFrame.fromMatrix(
+                pos,
+                left,
+                Vector3.new(0, 1, 0),
+                root.CFrame.LookVector
+            )
+            cf = cf * CFrame.Angles(math.rad(-10), 0, math.rad(6))
+        elseif mode == 2 then
+            -- Side: +Y = huong sang phai, +Z = len tren
+            pos = pos
+                + root.CFrame.LookVector * 0.32
+                + root.CFrame.RightVector * 0.18
+            cf = CFrame.fromMatrix(
+                pos,
+                -root.CFrame.LookVector,
+                root.CFrame.RightVector,
+                root.CFrame.UpVector
+            )
+        else
+            -- Forward: +Y = huong mat, +Z = len tren
+            pos = pos
+                + root.CFrame.LookVector * 0.30
+                + root.CFrame.RightVector * 0.12
+            cf = CFrame.fromMatrix(
+                pos,
+                root.CFrame.RightVector,
+                root.CFrame.LookVector,
+                root.CFrame.UpVector
+            )
+        end
+        local rolls = WEAPON_ROLL[key]
+        local roll = rolls and rolls[mode] or 0
+        if roll ~= 0 then
+            cf = cf * CFrame.Angles(0, math.rad(roll), 0)
+        end
+        return cf
+    end
 
     local function findRightHand(char)
         if not char then
@@ -7060,6 +7917,120 @@ local function initCosmeticsAndMusic()
         return model
     end
 
+    local function buildPreviewHand(world)
+        local model = new("Model", { Name = "PreviewHand" }, world)
+        local skin = Color3.fromRGB(232, 200, 170)
+        local cloth = Color3.fromRGB(58, 66, 92)
+        local function part(name, size, cf, color, shape)
+            local props = {
+                Name = name,
+                Size = size,
+                CFrame = cf,
+                Anchored = true,
+                CanCollide = false,
+                CanQuery = false,
+                CanTouch = false,
+                CastShadow = false,
+                Material = Enum.Material.SmoothPlastic,
+                Color = color,
+            }
+            if shape then
+                props.Shape = shape
+            end
+            return new("Part", props, model)
+        end
+        part("Palm", Vector3.new(0.95, 0.95, 0.95), CFrame.new(0, 0, 0), skin)
+        for i = 1, 4 do
+            local z = -0.30 + (i - 1) * 0.20
+            part(
+                "Finger" .. i,
+                Vector3.new(0.26, 0.22, 0.18),
+                CFrame.new(-0.34, 0.34, z) * CFrame.Angles(0, 0, math.rad(-8)),
+                skin
+            )
+        end
+        part(
+            "Thumb",
+            Vector3.new(0.24, 0.30, 0.24),
+            CFrame.new(0.18, 0.30, 0.42)
+                * CFrame.Angles(math.rad(18), 0, math.rad(-20)),
+            skin
+        )
+        part("Wrist", Vector3.new(0.78, 0.78, 0.78), CFrame.new(0.86, 0, 0), skin)
+        part("Sleeve", Vector3.new(1.25, 1.02, 1.02), CFrame.new(1.75, 0, 0), cloth)
+        local glow = part(
+            "Glow",
+            Vector3.new(2.6, 2.6, 2.6),
+            CFrame.new(0.2, 0, 0),
+            Color3.fromRGB(80, 140, 255),
+            Enum.PartType.Ball
+        )
+        glow.Material = Enum.Material.Neon
+        glow.Transparency = 0.86
+        return model
+    end
+
+    local function setPreviewBodyVisible(visible)
+        for _, item in ipairs(previewBodyParts) do
+            local part = item.part
+            if part and part.Parent then
+                part.Transparency = visible and item.trans or 1
+            end
+        end
+    end
+
+    local function modelBounds(cm)
+        local minV = Vector3.new(math.huge, math.huge, math.huge)
+        local maxV = Vector3.new(-math.huge, -math.huge, -math.huge)
+        if not cm then
+            return Vector3.new(0, 0, 0), 2
+        end
+        for _, item in ipairs(cm.parts) do
+            local pos = item.offset.Position
+            local h = item.size * 0.5
+            minV = Vector3.new(
+                math.min(minV.X, pos.X - h.X),
+                math.min(minV.Y, pos.Y - h.Y),
+                math.min(minV.Z, pos.Z - h.Z)
+            )
+            maxV = Vector3.new(
+                math.max(maxV.X, pos.X + h.X),
+                math.max(maxV.Y, pos.Y + h.Y),
+                math.max(maxV.Z, pos.Z + h.Z)
+            )
+        end
+        if minV.X > maxV.X then
+            return Vector3.new(0, 0, 0), 2
+        end
+        local ext = maxV - minV
+        local maxDim = math.max(ext.X, ext.Y, ext.Z)
+        return (minV + maxV) * 0.5, math.max(maxDim, 0.8)
+    end
+
+    local function itemBase(key, def, cm)
+        if def.cat == "hand" then
+            local mode = math.floor(math.clamp(Config.cosmetic.hold or 1, 1, 3))
+            local cf = CFrame.new(0, 0.45, 0)
+            if mode == 3 then
+                cf = cf * CFrame.Angles(0, 0, 0)
+            elseif mode == 2 then
+                cf = cf
+                    * CFrame.Angles(0, math.rad(90), 0)
+                    * CFrame.Angles(0, 0, math.rad(90))
+            else
+                cf = cf * CFrame.Angles(0, 0, math.rad(90))
+            end
+            local rolls = WEAPON_ROLL[key]
+            local roll = rolls and rolls[mode] or 0
+            if roll ~= 0 then
+                cf = cf * CFrame.Angles(0, math.rad(roll), 0)
+            end
+            return cf
+        end
+        local center = modelBounds(cm)
+        return CFrame.new(Vector3.new(0, 1.0, 0) - center)
+    end
+
     local function setupPreview()
         if not benchAlive or not ui.cosPreview then
             return
@@ -7073,6 +8044,12 @@ local function initCosmeticsAndMusic()
         previewAngles = {}
         previewChar = nil
         previewRing = nil
+        if previewHand then
+            previewHand:Destroy()
+        end
+        previewHand = nil
+        previewHandShown = false
+        previewBodyParts = {}
         buildPlatform(world)
 
         local char = LocalPlayer.Character
@@ -7116,6 +8093,21 @@ local function initCosmeticsAndMusic()
             model = buildDummyPreview(world)
         end
         previewChar = model
+        previewBodyParts = {}
+        for _, d in ipairs(model:GetDescendants()) do
+            if d:IsA("BasePart") then
+                previewBodyParts[#previewBodyParts + 1] = {
+                    part = d,
+                    trans = d.Transparency,
+                }
+            end
+        end
+        previewHand = buildPreviewHand(world)
+        previewHand.PrimaryPart = previewHand:FindFirstChild("Palm")
+        if previewHand.PrimaryPart then
+            previewHand:PivotTo(CFrame.new(0, 0.45, 0))
+        end
+        previewHand.Parent = nil
 
         for _, key in ipairs(COS_KEYS) do
             previewModels[key] = builders[key](world, Config.cosmetic[key].color)
@@ -7158,13 +8150,31 @@ local function initCosmeticsAndMusic()
         local head = previewChar:FindFirstChild("Head")
         local torso = previewChar:FindFirstChild("UpperTorso")
             or previewChar:FindFirstChild("Torso")
+        local selDef = ui.cosDefs and ui.cosDefs[Config.cosmetic.selected]
+        local itemOnly = ui.cosItemOnly and selDef ~= nil
+
+        setPreviewBodyVisible(not itemOnly)
+        local handShown = itemOnly and selDef and selDef.cat == "hand"
+        if handShown ~= previewHandShown then
+            previewHandShown = handShown
+            if previewHand then
+                previewHand.Parent = handShown and previewWorld or nil
+            end
+        end
 
         for i, key in ipairs(COS_KEYS) do
             local cm = previewModels[key]
             local cfg = Config.cosmetic[key]
             if cm then
                 local base
-                if key == "wings" or key == "dragonwings" then
+                if itemOnly then
+                    if selDef and key == selDef.key then
+                        base = itemBase(key, selDef, cm)
+                        local center, maxDim = modelBounds(cm)
+                        previewItemTarget = base * center
+                        previewItemRadius = maxDim * 1.35 + 1.2
+                    end
+                elseif key == "wings" or key == "dragonwings" then
                     if torso then
                         base = torso.CFrame
                             * CFrame.new(0, 0.35, torso.Size.Z * 0.5 + 0.12)
@@ -7185,9 +8195,7 @@ local function initCosmeticsAndMusic()
                 elseif WEAPON_KEYS[key] then
                     local hand, grip = findRightHand(previewChar)
                     if hand then
-                        base = hand.CFrame
-                            * (grip or CFrame.new())
-                            * WEAPON_GRIP
+                        base = weaponBase(previewChar, hand, grip, key)
                     end
                 elseif head then
                     base = head.CFrame
@@ -7198,6 +8206,10 @@ local function initCosmeticsAndMusic()
                 local visible = cfg.enabled or (Config.cosmetic.selected == i)
                 if ui.cosPreviewOnly then
                     visible = Config.cosmetic.selected == i
+                    ghost = false
+                end
+                if itemOnly then
+                    visible = selDef and key == selDef.key
                     ghost = false
                 end
                 if base and visible then
@@ -7226,14 +8238,21 @@ local function initCosmeticsAndMusic()
                 previewSpin = previewSpin + dt * 0.45
             end
             local spin = previewSpin + previewYaw
+            local target = Vector3.new(0, 0.25, 0)
             local radius = 9.6
+            local camY = 1.5
+            if itemOnly then
+                target = previewItemTarget
+                radius = previewItemRadius
+                camY = target.Y + radius * 0.35
+            end
             ui.cosPreviewCam.CFrame = CFrame.lookAt(
                 Vector3.new(
-                    math.cos(spin) * radius,
-                    1.5 + previewPitch,
-                    math.sin(spin) * radius
+                    target.X + math.cos(spin) * radius,
+                    camY + previewPitch,
+                    target.Z + math.sin(spin) * radius
                 ),
-                Vector3.new(0, 0.25, 0)
+                target
             )
         end
     end
@@ -7275,9 +8294,7 @@ local function initCosmeticsAndMusic()
                 elseif WEAPON_KEYS[key] then
                     local hand, grip = findRightHand(char)
                     if hand then
-                        base = hand.CFrame
-                            * (grip or CFrame.new())
-                            * WEAPON_GRIP
+                        base = weaponBase(char, hand, grip, key)
                     end
                 elseif head then
                     base = head.CFrame
