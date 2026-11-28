@@ -194,7 +194,7 @@ local Config = {
     },
 }
 
-local AIM_MODES = { "Camera", "Silent", "Hybrid" }
+local AIM_MODES = { "Camera", "Silent", "Hybrid", "Swipe" }
 local AIM_PARTS = { "Head", "HumanoidRootPart", "UpperTorso", "LowerTorso" }
 local ESP_STYLES = { "Box", "Corners", "Box + Corners", "Gradient" }
 local SKY_NAMES = { "Aurora", "Sunset", "Galaxy", "Storm", "Nebula", "Void" }
@@ -716,8 +716,8 @@ local glyph = new("TextLabel", {
 new("UIStroke", { Color = Theme.bg, Thickness = 2, Transparency = 0.4 }, glyph)
 
 --// panel
-local panelW = math.clamp(math.floor(vp.X * 0.93), 292, 380)
-local panelH = math.clamp(math.floor(vp.Y * 0.82), 320, 540)
+local panelW = math.clamp(math.floor(vp.X * 0.96), 292, 480)
+local panelH = math.clamp(math.floor(vp.Y * 0.88), 320, 640)
 
 local panel = new("Frame", {
     Name = "Panel",
@@ -801,6 +801,44 @@ local closeBtn = new("TextButton", {
 }, header)
 corner(closeBtn, 11)
 tint(closeBtn, "TextColor3", "muted")
+
+-- nut phong to / thu nho panel (van vua mobile)
+do
+    local expandBtn = new("TextButton", {
+        Size = UDim2.fromOffset(32, 32),
+        Position = UDim2.new(1, -82, 0, 12),
+        BackgroundColor3 = Theme.bg2,
+        AutoButtonColor = false,
+        Text = "MAX",
+        TextColor3 = Theme.muted,
+        TextSize = 8,
+        Font = Enum.Font.GothamBold,
+        BorderSizePixel = 0,
+        ZIndex = 24,
+    }, header)
+    corner(expandBtn, 11)
+    local expandedUI = false
+    local basePanelSize = panel.Size
+    local basePanelPos = panel.Position
+    track(expandBtn.Activated:Connect(function()
+        expandedUI = not expandedUI
+        if expandedUI then
+            panel.Size = UDim2.fromOffset(
+                math.floor(vp.X * 0.99),
+                math.floor(vp.Y * 0.97)
+            )
+            panel.Position = UDim2.fromOffset(
+                math.floor(vp.X * 0.005),
+                math.floor(vp.Y * 0.015)
+            )
+            expandBtn.Text = "MIN"
+        else
+            panel.Size = basePanelSize
+            panel.Position = basePanelPos
+            expandBtn.Text = "MAX"
+        end
+    end))
+end
 
 local tabsRow = new("Frame", {
     Position = UDim2.fromOffset(10, 64),
@@ -1798,16 +1836,16 @@ local MUSIC_FOLDER = "BenchUI_Music"
 
 --// cosmetic page
 local COSMETIC_DEFS = {
-    { key = "hat", label = "China Hat", desc = "Wide flat cone" },
-    { key = "halo", label = "Energy Halo", desc = "Energy ring, not a hat" },
-    { key = "wizard", label = "Wizard Hat", desc = "Tall purple star" },
-    { key = "wings", label = "Energy Wings", desc = "Big neon blades" },
-    { key = "dragonwings", label = "Dragon Wings", desc = "Red dragon fan" },
-    { key = "crown", label = "Energy Crown", desc = "Five spikes" },
-    { key = "dragon", label = "Dragon Pet", desc = "Floating neon pet" },
-    { key = "trident", label = "Energy Trident", desc = "Three-prong spear" },
-    { key = "thorhammer", label = "Thor Hammer", desc = "Lightning mallet" },
-    { key = "scythe", label = "Energy Scythe", desc = "Curved blade" },
+    { key = "hat", label = "China Hat", desc = "Wide flat cone", cat = "head" },
+    { key = "halo", label = "Energy Halo", desc = "Energy ring", cat = "head" },
+    { key = "wizard", label = "Wizard Hat", desc = "Tall purple star", cat = "head" },
+    { key = "wings", label = "Energy Wings", desc = "Big neon blades", cat = "wing" },
+    { key = "dragonwings", label = "Dragon Wings", desc = "Red dragon fan", cat = "wing" },
+    { key = "crown", label = "Energy Crown", desc = "Five spikes", cat = "head" },
+    { key = "dragon", label = "Dragon Pet", desc = "Floating neon pet", cat = "pet" },
+    { key = "trident", label = "Energy Trident", desc = "Three-prong spear", cat = "hand" },
+    { key = "thorhammer", label = "Thor Hammer", desc = "Lightning mallet", cat = "hand" },
+    { key = "scythe", label = "Energy Scythe", desc = "Curved blade", cat = "hand" },
 }
 local cosCards = {}
 local cosControls
@@ -1818,7 +1856,7 @@ local renderCosControls
 section(pages.cosmetic, "cosmetic studio")
 
 local cosTop = new("Frame", {
-    Size = UDim2.new(1, 0, 0, 238),
+    Size = UDim2.new(1, 0, 0, 278),
     BackgroundColor3 = Theme.bg2,
     BorderSizePixel = 0,
 }, pages.cosmetic)
@@ -1826,39 +1864,117 @@ corner(cosTop, 12)
 tint(cosTop, "BackgroundColor3", "bg2")
 addOrder(pages.cosmetic, cosTop)
 
-cosPreview = new("ViewportFrame", {
+-- studio backdrop sang mau (truoc day nen den kho nhin)
+local cosBackdrop = new("Frame", {
     Position = UDim2.fromOffset(8, 8),
-    Size = UDim2.new(0.48, -12, 1, -16),
-    BackgroundColor3 = Color3.fromRGB(8, 10, 16),
-    BackgroundTransparency = 0,
-    Ambient = Color3.fromRGB(140, 140, 170),
-    LightColor = Color3.fromRGB(255, 250, 240),
-    LightDirection = Vector3.new(-1, -0.5, -1),
+    Size = UDim2.new(0.52, -12, 1, -16),
+    BackgroundColor3 = Color3.fromRGB(84, 94, 122),
+    BorderSizePixel = 0,
+    ClipsDescendants = true,
 }, cosTop)
-corner(cosPreview, 12)
-stroke(cosPreview, Theme.stroke, 1)
+corner(cosBackdrop, 12)
 new("UIGradient", {
-    Color = ColorSequence.new(Color3.fromRGB(18, 22, 32), Color3.fromRGB(6, 8, 14)),
+    Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(112, 124, 158)),
+        ColorSequenceKeypoint.new(0.55, Color3.fromRGB(72, 82, 110)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(46, 54, 76)),
+    }),
     Rotation = 90,
-}, cosPreview)
-cosPreviewCam = new("Camera", { FieldOfView = 52 }, cosPreview)
+}, cosBackdrop)
+
+cosPreview = new("ViewportFrame", {
+    Size = UDim2.fromScale(1, 1),
+    BackgroundTransparency = 1,
+    Ambient = Color3.fromRGB(208, 208, 230),
+    LightColor = Color3.fromRGB(255, 252, 246),
+    LightDirection = Vector3.new(-1, -0.45, -0.85),
+    Active = true,
+}, cosBackdrop)
+cosPreviewCam = new("Camera", { FieldOfView = 56 }, cosPreview)
 cosPreview.CurrentCamera = cosPreviewCam
 
 new("TextLabel", {
-    Position = UDim2.fromOffset(10, 8),
+    Position = UDim2.fromOffset(10, 7),
     Size = UDim2.fromOffset(90, 14),
     BackgroundTransparency = 1,
     Font = Enum.Font.GothamBold,
     TextSize = 9,
-    TextColor3 = Theme.muted,
+    TextColor3 = Color3.fromRGB(238, 242, 255),
     TextXAlignment = Enum.TextXAlignment.Left,
-    Text = "PREVIEW",
+    Text = "3D PREVIEW",
     ZIndex = 2,
-}, cosPreview)
+}, cosBackdrop)
+new("TextLabel", {
+    Position = UDim2.fromOffset(10, 21),
+    Size = UDim2.new(1, -20, 0, 12),
+    BackgroundTransparency = 1,
+    Font = Enum.Font.GothamMedium,
+    TextSize = 8,
+    TextColor3 = Color3.fromRGB(206, 214, 236),
+    TextXAlignment = Enum.TextXAlignment.Left,
+    Text = "keo de xoay - vuot de nghieng",
+    ZIndex = 2,
+}, cosBackdrop)
+
+local previewName = new("TextLabel", {
+    Position = UDim2.new(0, 10, 1, -24),
+    Size = UDim2.new(1, -20, 0, 16),
+    BackgroundTransparency = 1,
+    Font = Enum.Font.GothamBold,
+    TextSize = 10,
+    TextColor3 = Color3.fromRGB(245, 248, 255),
+    TextXAlignment = Enum.TextXAlignment.Left,
+    TextTruncate = Enum.TextTruncate.AtEnd,
+    Text = "",
+    ZIndex = 2,
+}, cosBackdrop)
+
+ui.cosPreviewOnly = false
+local previewOnlyBtn = new("TextButton", {
+    Position = UDim2.new(1, -56, 0, 6),
+    Size = UDim2.fromOffset(48, 18),
+    BackgroundColor3 = Color3.fromRGB(26, 32, 46),
+    BackgroundTransparency = 0.2,
+    AutoButtonColor = false,
+    BorderSizePixel = 0,
+    Font = Enum.Font.GothamBold,
+    TextSize = 8,
+    TextColor3 = Color3.fromRGB(228, 234, 250),
+    Text = "ALL",
+    ZIndex = 3,
+}, cosBackdrop)
+corner(previewOnlyBtn, 7)
+track(previewOnlyBtn.Activated:Connect(function()
+    ui.cosPreviewOnly = not ui.cosPreviewOnly
+    previewOnlyBtn.Text = ui.cosPreviewOnly and "1 ITEM" or "ALL"
+    previewOnlyBtn.BackgroundColor3 = ui.cosPreviewOnly
+        and Theme.accent
+        or Color3.fromRGB(26, 32, 46)
+end))
+
+local COS_CATS = {
+    { key = "head", label = "HAT" },
+    { key = "wing", label = "WING" },
+    { key = "hand", label = "HAND" },
+    { key = "pet", label = "PET" },
+}
+local cosCat = "head"
+local cosCatBtns = {}
+local refreshCosThumbs
+local cosTabs = new("Frame", {
+    Position = UDim2.new(0.52, 4, 0, 8),
+    Size = UDim2.new(0.48, -12, 0, 22),
+    BackgroundTransparency = 1,
+}, cosTop)
+new("UIListLayout", {
+    FillDirection = Enum.FillDirection.Horizontal,
+    Padding = UDim.new(0, 3),
+    SortOrder = Enum.SortOrder.LayoutOrder,
+}, cosTabs)
 
 local cosList = new("ScrollingFrame", {
-    Position = UDim2.new(0.48, 4, 0, 8),
-    Size = UDim2.new(0.52, -12, 1, -16),
+    Position = UDim2.new(0.52, 4, 0, 34),
+    Size = UDim2.new(0.48, -12, 1, -42),
     BackgroundTransparency = 1,
     BorderSizePixel = 0,
     CanvasSize = UDim2.new(0, 0, 0, 0),
@@ -1869,19 +1985,25 @@ local cosList = new("ScrollingFrame", {
     ScrollBarImageTransparency = 0.4,
 }, cosTop)
 new("UIListLayout", {
-    Padding = UDim.new(0, 6),
+    Padding = UDim.new(0, 5),
     SortOrder = Enum.SortOrder.LayoutOrder,
 }, cosList)
 
 local function refreshCosCards()
+    local sel = COSMETIC_DEFS[Config.cosmetic.selected]
+    if sel and previewName then
+        local scfg = Config.cosmetic[sel.key]
+        previewName.Text = sel.label .. (scfg.enabled and "  -  ON" or "  -  OFF")
+    end
     for i, def in ipairs(COSMETIC_DEFS) do
         local card = cosCards[i]
         if card then
             local cfg = Config.cosmetic[def.key]
             local selected = Config.cosmetic.selected == i
+            card.btn.Visible = def.cat == cosCat
             card.btn.BackgroundColor3 = selected and Theme.accent or Theme.bg
-            card.btn.BackgroundTransparency = selected and 0.15 or 0.35
-            card.dot.BackgroundColor3 = cfg.color
+            card.btn.BackgroundTransparency = selected and 0.12 or 0.32
+            card.strip.BackgroundColor3 = cfg.color
             card.name.TextColor3 = selected and Color3.new(1, 1, 1) or Theme.text
             card.status.Text = cfg.enabled and "ON" or "OFF"
             card.status.TextColor3 = cfg.enabled
@@ -1891,48 +2013,125 @@ local function refreshCosCards()
     end
 end
 
+local function thumbBounds(card, cm)
+    local minV = Vector3.new(math.huge, math.huge, math.huge)
+    local maxV = Vector3.new(-math.huge, -math.huge, -math.huge)
+    for _, item in ipairs(cm.parts) do
+        local pos = item.offset.Position
+        local h = item.size * 0.5
+        minV = Vector3.new(
+            math.min(minV.X, pos.X - h.X),
+            math.min(minV.Y, pos.Y - h.Y),
+            math.min(minV.Z, pos.Z - h.Z)
+        )
+        maxV = Vector3.new(
+            math.max(maxV.X, pos.X + h.X),
+            math.max(maxV.Y, pos.Y + h.Y),
+            math.max(maxV.Z, pos.Z + h.Z)
+        )
+    end
+    if minV.X > maxV.X then
+        return
+    end
+    local ext = maxV - minV
+    local maxDim = math.max(ext.X, ext.Y, ext.Z)
+    card.thumbCenter = (minV + maxV) * 0.5
+    card.thumbRadius = math.max(maxDim * 1.25 + 0.5, 2.2)
+end
+
+refreshCosThumbs = function(force)
+    for i, def in ipairs(COSMETIC_DEFS) do
+        local card = cosCards[i]
+        if card then
+            local visible = def.cat == cosCat
+            if card.thumbModel and (force or not visible) then
+                card.thumbWorld:ClearAllChildren()
+                card.thumbModel = nil
+            end
+            if visible and not card.thumbModel and ui.thumbBuilder then
+                local ok, cm = pcall(ui.thumbBuilder, def.key, card.thumbWorld)
+                if ok and cm then
+                    card.thumbModel = cm
+                    local drop = {}
+                    for _, d in ipairs(card.thumbWorld:GetDescendants()) do
+                        if d:IsA("ParticleEmitter")
+                            or d:IsA("Sparkles")
+                            or d:IsA("Highlight")
+                            or d:IsA("Trail")
+                            or d:IsA("Beam")
+                            or d:IsA("PointLight") then
+                            drop[#drop + 1] = d
+                        end
+                    end
+                    for _, d in ipairs(drop) do
+                        d:Destroy()
+                    end
+                    thumbBounds(card, cm)
+                end
+            end
+        end
+    end
+end
+
 for i, def in ipairs(COSMETIC_DEFS) do
     local cfg = Config.cosmetic[def.key]
     local btn = new("TextButton", {
-        Size = UDim2.new(1, 0, 0, 52),
+        Size = UDim2.new(1, 0, 0, 46),
         BackgroundColor3 = Theme.bg,
-        BackgroundTransparency = 0.35,
+        BackgroundTransparency = 0.32,
         AutoButtonColor = false,
         Text = "",
         BorderSizePixel = 0,
         LayoutOrder = i,
     }, cosList)
     corner(btn, 10)
-    local dot = new("Frame", {
-        Position = UDim2.fromOffset(10, 10),
-        Size = UDim2.fromOffset(10, 10),
+    local strip = new("Frame", {
+        Position = UDim2.fromOffset(5, 5),
+        Size = UDim2.fromOffset(3, 36),
         BackgroundColor3 = cfg.color,
         BorderSizePixel = 0,
     }, btn)
-    corner(dot, 5)
+    corner(strip, 2)
+
+    local thumb = new("ViewportFrame", {
+        Position = UDim2.fromOffset(11, 5),
+        Size = UDim2.fromOffset(36, 36),
+        BackgroundColor3 = Color3.fromRGB(44, 52, 72),
+        BackgroundTransparency = 0,
+        Ambient = Color3.fromRGB(196, 196, 220),
+        LightColor = Color3.fromRGB(255, 255, 255),
+        LightDirection = Vector3.new(-1, -0.6, -0.9),
+    }, btn)
+    corner(thumb, 8)
+    local thumbWorld = new("WorldModel", { Name = "ThumbWorld" }, thumb)
+    local thumbCam = new("Camera", { FieldOfView = 45 }, thumb)
+    thumb.CurrentCamera = thumbCam
+
     local name = new("TextLabel", {
-        Position = UDim2.fromOffset(26, 3),
-        Size = UDim2.new(1, -62, 0, 18),
+        Position = UDim2.fromOffset(51, 5),
+        Size = UDim2.new(1, -92, 0, 15),
         BackgroundTransparency = 1,
         Font = Enum.Font.GothamBold,
-        TextSize = 11,
+        TextSize = 10,
         TextColor3 = Theme.text,
         TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
         Text = def.label,
     }, btn)
     local desc = new("TextLabel", {
-        Position = UDim2.fromOffset(26, 21),
-        Size = UDim2.new(1, -34, 0, 14),
+        Position = UDim2.fromOffset(51, 21),
+        Size = UDim2.new(1, -92, 0, 13),
         BackgroundTransparency = 1,
         Font = Enum.Font.GothamMedium,
         TextSize = 8,
         TextColor3 = Theme.muted,
         TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
         Text = def.desc,
     }, btn)
     local status = new("TextLabel", {
-        Position = UDim2.new(1, -40, 0, 5),
-        Size = UDim2.fromOffset(32, 16),
+        Position = UDim2.new(1, -40, 0, 15),
+        Size = UDim2.fromOffset(34, 14),
         BackgroundTransparency = 1,
         Font = Enum.Font.GothamBold,
         TextSize = 9,
@@ -1940,12 +2139,78 @@ for i, def in ipairs(COSMETIC_DEFS) do
         TextXAlignment = Enum.TextXAlignment.Right,
         Text = cfg.enabled and "ON" or "OFF",
     }, btn)
-    cosCards[i] = { btn = btn, dot = dot, name = name, status = status }
+    cosCards[i] = {
+        btn = btn,
+        strip = strip,
+        name = name,
+        status = status,
+        thumb = thumb,
+        thumbWorld = thumbWorld,
+        thumbCam = thumbCam,
+        thumbModel = nil,
+    }
     track(btn.Activated:Connect(function()
         Config.cosmetic.selected = i
         refreshCosCards()
         renderCosControls()
     end))
+end
+
+local function setCosCat(key)
+    cosCat = key
+    for _, item in ipairs(cosCatBtns) do
+        local active = item.key == key
+        item.btn.BackgroundColor3 = active and Theme.accent or Theme.bg
+        item.btn.BackgroundTransparency = active and 0.1 or 0.45
+        item.btn.TextColor3 = active and Color3.new(1, 1, 1) or Theme.muted
+    end
+    local cur = COSMETIC_DEFS[Config.cosmetic.selected]
+    if not cur or cur.cat ~= key then
+        for i, def in ipairs(COSMETIC_DEFS) do
+            if def.cat == key then
+                Config.cosmetic.selected = i
+                break
+            end
+        end
+        renderCosControls()
+    end
+    refreshCosCards()
+    refreshCosThumbs()
+end
+
+for i, cat in ipairs(COS_CATS) do
+    local b = new("TextButton", {
+        Size = UDim2.new(0.25, -3, 1, 0),
+        BackgroundColor3 = Theme.bg,
+        BackgroundTransparency = 0.45,
+        AutoButtonColor = false,
+        BorderSizePixel = 0,
+        Font = Enum.Font.GothamBold,
+        TextSize = 8,
+        TextColor3 = Theme.muted,
+        Text = cat.label,
+        LayoutOrder = i,
+    }, cosTabs)
+    corner(b, 7)
+    cosCatBtns[i] = { btn = b, key = cat.key }
+    track(b.Activated:Connect(function()
+        setCosCat(cat.key)
+    end))
+end
+
+ui.tickThumbs = function(t)
+    for i, def in ipairs(COSMETIC_DEFS) do
+        local card = cosCards[i]
+        if card and card.thumbModel and card.thumbCenter then
+            local a = t * 0.6 + i * 0.7
+            local r = card.thumbRadius or 3
+            card.thumbCam.CFrame = CFrame.lookAt(
+                card.thumbCenter
+                    + Vector3.new(math.cos(a) * r, r * 0.42, math.sin(a) * r),
+                card.thumbCenter
+            )
+        end
+    end
 end
 
 cosControls = new("Frame", {
@@ -1977,6 +2242,7 @@ renderCosControls = function()
     colorPicker(cosControls, "Color", cfg, "color", function()
         cosmeticRefresh()
         refreshCosCards()
+        refreshCosThumbs(true)
     end)
     sliderRow(cosControls, "Pos X", -3, 3, cfg.x, " stud", function(v)
         cfg.x = v
@@ -1991,22 +2257,31 @@ renderCosControls = function()
         cfg.scale = v
         cosmeticRefresh()
     end)
-    if def.key == "wings" or def.key == "dragonwings" then
+    if def.cat == "hand" then
+        note(cosControls,
+            "Vu khi tu dong nam trong tay phai va bam theo tay. "
+            .. "Dung Pos X / Y / Z va Size de canh chinh cho vua.", 34)
+    elseif def.key == "wings" or def.key == "dragonwings" then
         sliderRow(cosControls, "Flap speed", 0, 360, cfg.spin, " deg/s", function(v)
             cfg.spin = v
         end)
+        note(cosControls,
+            "Chon mon ben tren, bat Equip roi chinh vi tri / mau / scale. "
+            .. "Keo o 3D preview de xoay.", 30)
     else
         sliderRow(cosControls, "Spin", 0, 360, cfg.spin, " deg/s", function(v)
             cfg.spin = v
         end)
+        note(cosControls,
+            "Chon mon ben tren, bat Equip roi chinh vi tri / mau / scale. "
+            .. "Keo o 3D preview de xoay.", 30)
     end
-    note(cosControls,
-        "Chọn món bên trên, bật Equip rồi chỉnh vị trí / màu / scale. "
-        .. "Đồ hiện ngay trên nhân vật và mô hình preview.", 34)
 end
 
 refreshCosCards()
 renderCosControls()
+local savedDef = COSMETIC_DEFS[Config.cosmetic.selected]
+setCosCat(savedDef and savedDef.cat or "head")
 
 --// music hub
 musicGui = new("ScreenGui", {
@@ -3011,6 +3286,7 @@ ui.trackAsset = trackAsset
 ui.refreshMusicLibrary = refreshMusicLibrary
 ui.musicFolder = MUSIC_FOLDER
 ui.refreshCosCards = refreshCosCards
+ui.refreshCosThumbs = refreshCosThumbs
 ui.renderCosControls = renderCosControls
 ui.hubArtGrad = hubArtGrad
 ui.ytNext = ytNext
@@ -3368,7 +3644,7 @@ local function rainbowColor(base, speed, offset)
     return Color3.fromHSV(h, 0.85, 1)
 end
 
-local function setLine(line, a, b)
+local function setLine(line, a, b, thickness)
     local dx, dy = b.X - a.X, b.Y - a.Y
     local len = math.sqrt(dx * dx + dy * dy)
     if len < 2 then
@@ -3377,7 +3653,7 @@ local function setLine(line, a, b)
     end
     line.Visible = true
     line.Position = UDim2.fromOffset((a.X + b.X) * 0.5, (a.Y + b.Y) * 0.5)
-    line.Size = UDim2.fromOffset(len, 1.5)
+    line.Size = UDim2.fromOffset(len, thickness or 2.0)
     line.Rotation = math.deg(math.atan2(dy, dx))
 end
 
@@ -3485,6 +3761,11 @@ local function createEsp(player)
             AnchorPoint = Vector2.new(0.5, 0.5),
             Visible = false,
         }, holder)
+        lines[i].Stroke = new("UIStroke", {
+            Color = Config.esp.color,
+            Thickness = 1,
+            Transparency = 0.45,
+        }, lines[i])
     end
 
     espCache[player] = {
@@ -3636,6 +3917,7 @@ local function updateEsp()
                     local ok, bcf, bsize = pcall(char.GetBoundingBox, char)
                     if ok and bcf and bsize then
                         local pts = {}
+                        local depth = {}
                         local valid = true
                         for i = 1, 8 do
                             local sx = (i % 2 == 0) and 0.5 or -0.5
@@ -3650,11 +3932,26 @@ local function updateEsp()
                                 break
                             end
                             pts[i] = Vector2.new(sp.X, sp.Y)
+                            depth[i] = sp.Z
                         end
                         if valid then
+                            local dark = Color3.fromRGB(6, 8, 14)
                             for idx, edge in ipairs(EDGES) do
-                                ui.lines[idx].BackgroundColor3 = col
-                                setLine(ui.lines[idx], pts[edge[1]], pts[edge[2]])
+                                local line = ui.lines[idx]
+                                local d = (depth[edge[1]] + depth[edge[2]]) * 0.5
+                                local far = math.clamp((d - 14) / 150, 0, 1)
+                                line.BackgroundColor3 = col:Lerp(dark, far * 0.6)
+                                line.BackgroundTransparency = far * 0.45
+                                if line.Stroke then
+                                    line.Stroke.Color = col:Lerp(dark, far * 0.4)
+                                    line.Stroke.Transparency = 0.3 + far * 0.5
+                                end
+                                setLine(
+                                    line,
+                                    pts[edge[1]],
+                                    pts[edge[2]],
+                                    2.6 - far * 1.3
+                                )
                             end
                         else
                             hideLines(ui)
@@ -3903,12 +4200,23 @@ local function partOf(char)
     return char:FindFirstChild("HumanoidRootPart")
 end
 
+local aimSwipeOffset = Vector2.zero
+local aimSwipeActive = false
+local aimSwipeLast = nil
+
 local function findTarget()
     local cam = workspace.CurrentCamera
     if not cam then
         return nil
     end
-    local center = Vector2.new(cam.ViewportSize.X * 0.5, cam.ViewportSize.Y * 0.5)
+    local swX, swY = 0, 0
+    if Config.aim.mode == 4 then
+        swX, swY = aimSwipeOffset.X, aimSwipeOffset.Y
+    end
+    local center = Vector2.new(
+        cam.ViewportSize.X * 0.5 + swX,
+        cam.ViewportSize.Y * 0.5 + swY
+    )
     local best, bestDist = nil, Config.aim.fov * 0.5
 
     for _, plr in ipairs(Players:GetPlayers()) do
@@ -3938,6 +4246,45 @@ local function findTarget()
         end
     end
     return best
+end
+
+if UIS then
+    track(UIS.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then
+            return
+        end
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            aimSwipeActive = true
+            aimSwipeLast = input.Position
+        end
+    end))
+    track(UIS.InputChanged:Connect(function(input)
+        if not aimSwipeActive or not aimSwipeLast then
+            return
+        end
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch then
+            local d = input.Position - aimSwipeLast
+            aimSwipeLast = input.Position
+            if Config.aim.enabled and Config.aim.mode == 4 then
+                local vp = workspace.CurrentCamera
+                    and workspace.CurrentCamera.ViewportSize
+                    or Vector2.new(1280, 720)
+                aimSwipeOffset = Vector2.new(
+                    math.clamp(aimSwipeOffset.X + d.X, -vp.X * 0.42, vp.X * 0.42),
+                    math.clamp(aimSwipeOffset.Y + d.Y, -vp.Y * 0.42, vp.Y * 0.42)
+                )
+            end
+        end
+    end))
+    track(UIS.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            aimSwipeActive = false
+            aimSwipeLast = nil
+        end
+    end))
 end
 
 local function applyAim(part, factor)
@@ -5512,6 +5859,9 @@ local function initCosmeticsAndMusic()
     local previewModels = {}
     local previewAngles = {}
     local previewSpin = 0
+    local previewYaw = 0
+    local previewPitch = 0
+    local previewDrag = nil
     local previewRing = nil
     local saveAcc = 0
 
@@ -6261,106 +6611,180 @@ local function initCosmeticsAndMusic()
         return { model = model, parts = parts }
     end
 
+    --// weapon rig: truc Y la chieu cao, goc toa do (0,0,0) la diem cam tay
+    local function addCyl(model, parts, len, dia, cf, color, trans, extra)
+        return addCosPart(
+            model, parts,
+            Vector3.new(len, dia, dia),
+            cf * CFrame.Angles(0, 0, math.rad(90)),
+            color, trans, Enum.PartType.Cylinder, extra
+        )
+    end
+
+    local function addRing(model, parts, dia, thick, cf, color, trans, extra)
+        return addCosPart(
+            model, parts,
+            Vector3.new(thick, dia, dia),
+            cf * CFrame.Angles(0, 0, math.rad(90)),
+            color, trans, Enum.PartType.Cylinder, extra
+        )
+    end
+
+    local function addSpike(model, parts, cf, w, h, color, trans, extra)
+        local steps = { 1.0, 0.70, 0.42 }
+        local y = 0
+        for i = 1, #steps do
+            local sc = steps[i]
+            local segH = h * (i == 1 and 0.5 or 0.26)
+            addCosPart(
+                model, parts,
+                Vector3.new(w * sc, segH, w * sc),
+                cf * CFrame.new(0, y + segH * 0.5, 0),
+                color, trans, nil,
+                {
+                    kind = "static",
+                    class = "Part",
+                    lerp = (extra and extra.lerp) or 0,
+                }
+            )
+            y = y + segH
+        end
+    end
+
     local function buildTrident(parent, color)
         local model = new("Model", { Name = "CosTrident" }, parent)
         local parts = {}
-        local function add(size, off, trans, shape, extra)
-            return addCosPart(model, parts, size, off, color, trans, shape, extra)
+        local function add(size, cf, trans, shape, extra)
+            return addCosPart(model, parts, size, cf, color, trans, shape, extra)
         end
-        local metal = Color3.fromRGB(200, 210, 230)
-        -- shaft (khoen dinh ba)
-        add(Vector3.new(0.12, 0.12, 3.4), CFrame.new(0, 0, -0.2), 0.04, nil, { kind = "static", fixed = metal })
-        -- guard crossbar
-        add(Vector3.new(1.1, 0.10, 0.10), CFrame.new(0, 0, 1.15), 0.05, nil, { kind = "static", fixed = metal })
-        add(Vector3.new(0.24, 0.12, 0.12), CFrame.new(0, -0.06, 1.15), 0.05, nil, { kind = "static", fixed = metal })
-        -- three prongs
-        -- center prong
-        add(Vector3.new(0.10, 0.10, 1.5), CFrame.new(0, 0, 1.9), 0.02, nil, { kind = "static" })
-        add(Vector3.new(0.30, 0.06, 0.30), CFrame.new(0, 0, 2.55), 0, nil, { kind = "static", lerp = 0.25 })
-        add(Vector3.new(0.14, 0.55, 0.55), CFrame.new(0, 0, 2.75) * CFrame.Angles(0, math.rad(45), math.rad(45)), 0, nil, { kind = "static", class = "WedgePart", lerp = 0.2 })
-        -- side prongs
+        local steel = Color3.fromRGB(190, 200, 218)
+        local dark = Color3.fromRGB(44, 50, 66)
+        local M = { kind = "static", fixed = steel, material = Enum.Material.Metal }
+        local D = { kind = "static", fixed = dark }
+
+        -- than doc, diem cam o y = 0
+        addCyl(model, parts, 2.5, 0.135, CFrame.new(0, 0.28, 0), color, 0.03, M)
+        -- dai quan tay
+        for i = 1, 5 do
+            addRing(model, parts, 0.175, 0.075, CFrame.new(0, -0.66 + i * 0.15, 0), color, 0.12, D)
+        end
+        -- duoi
+        addCyl(model, parts, 0.16, 0.22, CFrame.new(0, -0.99, 0), color, 0.02, M)
+        add(Vector3.new(0.2, 0.2, 0.2), CFrame.new(0, -1.09, 0), 0, Enum.PartType.Ball, M)
+        -- co noi
+        addCyl(model, parts, 0.24, 0.19, CFrame.new(0, 1.5, 0), color, 0.02, D)
+        -- thanh ngang
+        add(Vector3.new(1.2, 0.11, 0.13), CFrame.new(0, 1.62, 0), 0.02, nil, M)
+        add(Vector3.new(0.17, 0.21, 0.21), CFrame.new(0, 1.62, 0), 0, Enum.PartType.Ball, M)
+        -- nhanh giua
+        addCyl(model, parts, 1.0, 0.085, CFrame.new(0, 2.14, 0), color, 0.02, M)
+        addSpike(model, parts, CFrame.new(0, 2.63, 0), 0.16, 0.66, color, 0, { lerp = 0.4 })
+        -- hai nhanh ben
         for side = -1, 1, 2 do
-            add(Vector3.new(0.08, 0.08, 1.35), CFrame.new(side * 0.24, 0, 1.85) * CFrame.Angles(0, side * math.rad(7), 0), 0.02, nil, { kind = "static" })
-            add(Vector3.new(0.26, 0.05, 0.26), CFrame.new(side * 0.30, 0, 2.45), 0, nil, { kind = "static", lerp = 0.25 })
-            add(Vector3.new(0.12, 0.45, 0.45), CFrame.new(side * 0.32, 0, 2.62) * CFrame.Angles(0, side * math.rad(7), math.rad(45)), 0, nil, { kind = "static", class = "WedgePart", lerp = 0.2 })
+            add(Vector3.new(0.52, 0.09, 0.09), CFrame.new(side * 0.3, 1.62, 0), 0.02, nil, M)
+            addCyl(model, parts, 0.94, 0.075, CFrame.new(side * 0.55, 2.11, 0), color, 0.02, M)
+            addSpike(model, parts, CFrame.new(side * 0.55, 2.57, 0), 0.13, 0.54, color, 0, { lerp = 0.4 })
         end
-        -- glowing core + energy rings
-        add(Vector3.new(0.22, 0.22, 0.22), CFrame.new(0, 0, 0.2), 0, nil, { kind = "rune", angle = 0, radius = 0.35, y = 0, lerp = 0.45 })
-        for i = 1, 4 do
-            add(Vector3.new(0.18, 0.18, 0.05), CFrame.new(0, 0, -0.5 + i * 0.7), 0.35, nil, { kind = "rune", angle = i, radius = 0.22, y = 0, lerp = 0.3 })
-        end
+        -- loi nang luong
+        add(Vector3.new(0.23, 0.23, 0.23), CFrame.new(0, 1.62, 0), 0.12, Enum.PartType.Ball, { kind = "static", lerp = 0.55 })
+        addRing(model, parts, 0.64, 0.05, CFrame.new(0, 1.28, 0), color, 0.42, { kind = "static", lerp = 0.5 })
+        addRing(model, parts, 0.3, 0.04, CFrame.new(0, 0.62, 0), color, 0.5, { kind = "static", lerp = 0.5 })
+        addRing(model, parts, 0.24, 0.035, CFrame.new(0, 0.05, 0), color, 0.55, { kind = "static", lerp = 0.5 })
         enhanceModel(model, color)
-        return { model = model, parts = parts }
+        return { model = model, parts = parts, noSpin = true }
     end
 
     local function buildThorHammer(parent, color)
         local model = new("Model", { Name = "CosThorHammer" }, parent)
         local parts = {}
-        local function add(size, off, trans, shape, extra)
-            return addCosPart(model, parts, size, off, color, trans, shape, extra)
+        local function add(size, cf, trans, shape, extra)
+            return addCosPart(model, parts, size, cf, color, trans, shape, extra)
         end
-        local metal = Color3.fromRGB(180, 180, 200)
-        local dark = Color3.fromRGB(20, 20, 30)
-        -- handle (chuoi bua)
-        add(Vector3.new(0.13, 0.13, 1.7), CFrame.new(0, 0, -0.95), 0.04, nil, { kind = "static", fixed = metal })
-        -- pommel cap
-        add(Vector3.new(0.24, 0.24, 0.14), CFrame.new(0, 0, -1.82), 0.04, nil, { kind = "static", fixed = dark })
-        -- head block
-        add(Vector3.new(1.05, 0.72, 0.72), CFrame.new(0, 0, 0.45), 0.02, nil, { kind = "static", fixed = dark })
-        add(Vector3.new(1.25, 0.92, 0.92), CFrame.new(0, 0, 0.45), 0.32, nil, { kind = "static", lerp = 0.25 })
-        -- side faces
-        add(Vector3.new(0.16, 0.62, 0.62), CFrame.new(0.64, 0, 0.45), 0.06, nil, { kind = "static", fixed = dark })
-        add(Vector3.new(0.16, 0.62, 0.62), CFrame.new(-0.64, 0, 0.45), 0.06, nil, { kind = "static", fixed = dark })
-        -- front/back caps
-        add(Vector3.new(1.05, 0.72, 0.10), CFrame.new(0, 0, 0.95), 0.05, nil, { kind = "static", fixed = dark })
-        add(Vector3.new(1.05, 0.72, 0.10), CFrame.new(0, 0, -0.05), 0.05, nil, { kind = "static", fixed = dark })
-        -- lightning core
-        add(Vector3.new(0.34, 0.34, 0.34), CFrame.new(0, 0, 0.45), 0, nil, { kind = "rune", angle = 0, radius = 0.5, y = 0, lerp = 0.6 })
-        -- lightning arcs
+        local steel = Color3.fromRGB(156, 162, 180)
+        local dark = Color3.fromRGB(38, 40, 54)
+        local M = { kind = "static", fixed = steel, material = Enum.Material.Metal }
+        local D = { kind = "static", fixed = dark, material = Enum.Material.Slate }
+
+        -- chuoi
+        addCyl(model, parts, 1.9, 0.14, CFrame.new(0, -0.18, 0), color, 0.02, M)
+        for i = 1, 6 do
+            addRing(model, parts, 0.18, 0.07, CFrame.new(0, -1.0 + i * 0.15, 0), color, 0.1, D)
+        end
+        addCyl(model, parts, 0.12, 0.24, CFrame.new(0, -1.16, 0), color, 0.02, M)
+        add(Vector3.new(0.22, 0.22, 0.22), CFrame.new(0, -1.26, 0), 0, Enum.PartType.Ball, M)
+
+        -- dau bua: khoi lon vuong goc voi chuoi
+        add(Vector3.new(1.5, 0.8, 0.94), CFrame.new(0, 0.92, 0), 0.02, nil, D)
+        add(Vector3.new(1.3, 0.62, 0.78), CFrame.new(0, 0.92, 0), 0.62, nil, { kind = "static", lerp = 0.1, material = Enum.Material.Neon })
+        -- mat hai ben
+        for side = -1, 1, 2 do
+            add(Vector3.new(0.14, 0.9, 1.04), CFrame.new(side * 0.8, 0.92, 0), 0.02, nil, M)
+            add(Vector3.new(0.07, 0.6, 0.7), CFrame.new(side * 0.88, 0.92, 0), 0.2, nil, { kind = "static", lerp = 0.4 })
+        end
+        -- vien tren duoi
+        add(Vector3.new(1.62, 0.1, 1.0), CFrame.new(0, 1.36, 0), 0.02, nil, M)
+        add(Vector3.new(1.62, 0.1, 1.0), CFrame.new(0, 0.48, 0), 0.02, nil, M)
+        -- loi set
+        add(Vector3.new(0.4, 0.42, 0.98), CFrame.new(0, 0.92, 0), 0.02, nil, { kind = "static", lerp = 0.6 })
+        -- tia set tren mat truoc
         for i = 1, 4 do
-            local a = (i - 1) * math.pi / 2
-            add(Vector3.new(0.06, 0.06, 1.1), CFrame.Angles(0, a, math.rad(45)) * CFrame.new(0, 0, 0.45), 0.15, nil, { kind = "rune", angle = a, radius = 0.72, y = 0, lerp = 0.5 })
+            add(
+                Vector3.new(0.07, 0.44, 0.04),
+                CFrame.new(-0.5 + i * 0.25, 0.92 + (i % 2 == 0 and 0.07 or -0.07), 0.48)
+                    * CFrame.Angles(0, 0, math.rad(i % 2 == 0 and 36 or -36)),
+                0.03, nil, { kind = "static", lerp = 0.65 }
+            )
         end
-        -- grip wrap
-        for i = 1, 3 do
-            add(Vector3.new(0.16, 0.16, 0.07), CFrame.new(0, 0, -0.35 - i * 0.25), 0.10, nil, { kind = "static", fixed = dark })
-        end
+        -- vong nang luong
+        addRing(model, parts, 0.58, 0.05, CFrame.new(0, 0.42, 0), color, 0.38, { kind = "static", lerp = 0.5 })
+        addRing(model, parts, 0.3, 0.04, CFrame.new(0, -0.3, 0), color, 0.5, { kind = "static", lerp = 0.5 })
         enhanceModel(model, color)
-        return { model = model, parts = parts }
+        return { model = model, parts = parts, noSpin = true }
     end
 
     local function buildScythe(parent, color)
         local model = new("Model", { Name = "CosScythe" }, parent)
         local parts = {}
-        local function add(size, off, trans, shape, extra)
-            return addCosPart(model, parts, size, off, color, trans, shape, extra)
+        local function add(size, cf, trans, shape, extra)
+            return addCosPart(model, parts, size, cf, color, trans, shape, extra)
         end
-        local metal = Color3.fromRGB(200, 210, 220)
-        -- shaft
-        add(Vector3.new(0.12, 0.12, 3.2), CFrame.new(0, 0, -0.4), 0.05, nil, { kind = "static", fixed = metal })
-        -- pommel
-        add(Vector3.new(0.26, 0.26, 0.26), CFrame.new(0, 0, -2.05), 0, nil, { kind = "static", class = "Part", shape = nil, lerp = 0.45 })
-        -- guard near blade
-        add(Vector3.new(0.18, 0.18, 0.18), CFrame.new(0.12, 0, 1.15), 0.1, nil, { kind = "static", fixed = metal })
-        -- blade curve (segments)
-        for i = 1, 7 do
-            local ang = math.rad(-24 + i * 11)
-            local z = 1.2 + i * 0.20
-            local x = 0.16 + i * 0.17
-            add(Vector3.new(0.08, 0.55, 0.18), CFrame.new(x, 0, z) * CFrame.Angles(0, ang, math.rad(22)), 0.02, nil, { kind = "static", fixed = metal })
+        local steel = Color3.fromRGB(208, 216, 228)
+        local dark = Color3.fromRGB(32, 36, 48)
+        local M = { kind = "static", fixed = steel, material = Enum.Material.Metal }
+        local D = { kind = "static", fixed = dark }
+
+        -- than
+        addCyl(model, parts, 2.6, 0.125, CFrame.new(0, 0.08, 0), color, 0.02, D)
+        for i = 1, 5 do
+            addRing(model, parts, 0.165, 0.07, CFrame.new(0, -0.92 + i * 0.15, 0), color, 0.1, M)
         end
-        -- blade tip wedge
-        add(Vector3.new(0.10, 0.45, 0.45), CFrame.new(1.55, 0, 2.62) * CFrame.Angles(0, math.rad(40), math.rad(45)), 0, nil, { kind = "static", class = "WedgePart", lerp = 0.3 })
-        -- inner glow edge
-        for i = 1, 4 do
-            add(Vector3.new(0.07, 0.30, 0.10), CFrame.new(0.34 + i * 0.30, 0, 1.45 + i * 0.24) * CFrame.Angles(0, math.rad(-10 + i * 7), math.rad(18)), 0.32, nil, { kind = "static", lerp = 0.5 })
+        add(Vector3.new(0.22, 0.22, 0.22), CFrame.new(0, -1.22, 0), 0, Enum.PartType.Ball, M)
+        -- co noi
+        addCyl(model, parts, 0.28, 0.2, CFrame.new(0, 1.36, 0), color, 0.02, M)
+        addRing(model, parts, 0.36, 0.05, CFrame.new(0, 1.5, 0), color, 0.34, { kind = "static", lerp = 0.5 })
+        -- moc noi luoi
+        add(Vector3.new(0.16, 0.42, 0.16), CFrame.new(0, 1.6, 0.14), 0.02, nil, M)
+
+        -- luoi liem cong (crescent) quet ra truoc roi cong xuong
+        local cf = CFrame.new(0, 1.55, 0.06)
+        local pitch = math.rad(-26)
+        for i = 1, 10 do
+            cf = cf * CFrame.Angles(pitch, 0, 0) * CFrame.new(0, 0, 0.225)
+            local h = 0.56 - math.abs(i - 3.5) * 0.028
+            add(Vector3.new(0.07, h, 0.3), cf, 0.02, nil, M)
+            add(
+                Vector3.new(0.045, 0.07, 0.28),
+                cf * CFrame.new(0, -h * 0.5, 0),
+                0.3, nil, { kind = "static", lerp = 0.65 }
+            )
+            pitch = pitch + math.rad(8.2)
         end
-        -- energy runes along shaft
+        -- rune tren than
         for i = 1, 3 do
-            add(Vector3.new(0.16, 0.16, 0.05), CFrame.new(0, 0, -0.2 + i * 0.8), 0.4, nil, { kind = "rune", angle = i, radius = 0.18, y = 0, lerp = 0.3 })
+            addRing(model, parts, 0.22, 0.04, CFrame.new(0, 0.15 + i * 0.34, 0), color, 0.5, { kind = "static", lerp = 0.5 })
         end
         enhanceModel(model, color)
-        return { model = model, parts = parts }
+        return { model = model, parts = parts, noSpin = true }
     end
 
     local builders = {
@@ -6378,6 +6802,15 @@ local function initCosmeticsAndMusic()
 
     for _, key in ipairs(COS_KEYS) do
         worldModels[key] = builders[key](cosFolder, Config.cosmetic[key].color)
+    end
+
+    -- thumbnail 3D cho tung card trong danh sach cosmetic
+    ui.thumbBuilder = function(key, world)
+        local build = builders[key]
+        if not build then
+            return nil
+        end
+        return build(world, Config.cosmetic[key].color)
     end
 
     local function setModelVisible(cm, visible, ghost)
@@ -6400,14 +6833,26 @@ local function initCosmeticsAndMusic()
 
     local WEAPON_KEYS = { trident = true, thorhammer = true, scythe = true }
 
+    -- goc cam: dung chieu cao cua tay, hoi nghieng ra truoc + ra ngoai
+    local WEAPON_GRIP = CFrame.Angles(math.rad(-12), 0, math.rad(7))
+
     local function findRightHand(char)
         if not char then
-            return nil
+            return nil, nil
         end
-        return char:FindFirstChild("RightHand")
-            or char:FindFirstChild("Right Arm")
+        local hand = char:FindFirstChild("RightHand")
+            or char:FindFirstChild("RightHand2")
+        if hand then
+            return hand, CFrame.new(0.1, -0.14, -0.42)
+        end
+        local arm = char:FindFirstChild("Right Arm")
+            or char:FindFirstChild("RightArm")
             or char:FindFirstChild("RightLeg")
-            or char:FindFirstChild("Right Leg")
+        if arm then
+            local drop = math.max(0, arm.Size.Y * 0.5 - 0.22)
+            return arm, CFrame.new(0.1, -drop, -0.42)
+        end
+        return nil, nil
     end
 
     local function updateModel(cm, base, cfg, t, angle, visible, ghost)
@@ -6420,7 +6865,7 @@ local function initCosmeticsAndMusic()
             local part = item.part
             if part and part.Parent then
                 local cf
-                if item.kind == "rune" then
+                if item.kind == "rune" and not cm.noSpin then
                     cf = root
                         * CFrame.Angles(0, t * 1.6 + item.angle, 0)
                         * CFrame.new(item.radius * scale, item.y * scale, 0)
@@ -6529,7 +6974,7 @@ local function initCosmeticsAndMusic()
             CanTouch = false,
             CastShadow = false,
             Material = Enum.Material.SmoothPlastic,
-            Color = Color3.fromRGB(12, 14, 22),
+            Color = Color3.fromRGB(46, 52, 72),
         }, world)
         previewRing = new("Part", {
             Name = "PreviewRing",
@@ -6571,6 +7016,20 @@ local function initCosmeticsAndMusic()
             Material = Enum.Material.Neon,
             Color = Theme.accent:Lerp(Color3.new(1, 1, 1), 0.3),
             Transparency = 0.45,
+        }, world)
+        -- vong sang phu de nen sang hon
+        new("Part", {
+            Name = "PreviewGlowFloor",
+            Size = Vector3.new(0.06, 6.6, 6.6),
+            CFrame = CFrame.new(0, -2.98, 0) * CFrame.Angles(0, 0, math.rad(90)),
+            Anchored = true,
+            CanCollide = false,
+            CanQuery = false,
+            CanTouch = false,
+            CastShadow = false,
+            Material = Enum.Material.Neon,
+            Color = Color3.fromRGB(120, 140, 210),
+            Transparency = 0.62,
         }, world)
     end
 
@@ -6665,6 +7124,33 @@ local function initCosmeticsAndMusic()
         cosmeticRefresh()
     end
 
+    if ui.cosPreview then
+        track(ui.cosPreview.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1
+                or input.UserInputType == Enum.UserInputType.Touch then
+                previewDrag = input.Position
+            end
+        end))
+        track(UIS.InputChanged:Connect(function(input)
+            if not previewDrag then
+                return
+            end
+            if input.UserInputType == Enum.UserInputType.MouseMovement
+                or input.UserInputType == Enum.UserInputType.Touch then
+                local d = input.Position - previewDrag
+                previewDrag = input.Position
+                previewYaw = previewYaw - d.X * 0.01
+                previewPitch = math.clamp(previewPitch + d.Y * 0.01, -1.2, 1.2)
+            end
+        end))
+        track(UIS.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1
+                or input.UserInputType == Enum.UserInputType.Touch then
+                previewDrag = nil
+            end
+        end))
+    end
+
     local function updatePreviewImpl(dt, t)
         if not previewWorld or not previewChar then
             return
@@ -6697,9 +7183,11 @@ local function initCosmeticsAndMusic()
                             * CFrame.lookAt(pos, pos + vel)
                     end
                 elseif WEAPON_KEYS[key] then
-                    local hand = findRightHand(previewChar)
+                    local hand, grip = findRightHand(previewChar)
                     if hand then
-                        base = hand.CFrame * CFrame.new(0.08, -0.28, 0)
+                        base = hand.CFrame
+                            * (grip or CFrame.new())
+                            * WEAPON_GRIP
                     end
                 elseif head then
                     base = head.CFrame
@@ -6708,9 +7196,13 @@ local function initCosmeticsAndMusic()
 
                 local ghost = not cfg.enabled
                 local visible = cfg.enabled or (Config.cosmetic.selected == i)
+                if ui.cosPreviewOnly then
+                    visible = Config.cosmetic.selected == i
+                    ghost = false
+                end
                 if base and visible then
                     if key ~= "wings" and key ~= "dragonwings"
-                        and key ~= "dragon" then
+                        and key ~= "dragon" and not WEAPON_KEYS[key] then
                         previewAngles[key] =
                             (previewAngles[key] or 0) + dt * math.rad(cfg.spin or 0)
                     end
@@ -6730,15 +7222,18 @@ local function initCosmeticsAndMusic()
         end
 
         if ui.cosPreviewCam then
-            previewSpin = previewSpin + dt * 0.55
-            local radius = 7.4
+            if not previewDrag then
+                previewSpin = previewSpin + dt * 0.45
+            end
+            local spin = previewSpin + previewYaw
+            local radius = 9.6
             ui.cosPreviewCam.CFrame = CFrame.lookAt(
                 Vector3.new(
-                    math.cos(previewSpin) * radius,
-                    1.7,
-                    math.sin(previewSpin) * radius
+                    math.cos(spin) * radius,
+                    1.5 + previewPitch,
+                    math.sin(spin) * radius
                 ),
-                Vector3.new(0, -0.25, 0)
+                Vector3.new(0, 0.25, 0)
             )
         end
     end
@@ -6778,10 +7273,11 @@ local function initCosmeticsAndMusic()
                             * CFrame.lookAt(pos, pos + vel)
                     end
                 elseif WEAPON_KEYS[key] then
-                    local hand = findRightHand(char)
+                    local hand, grip = findRightHand(char)
                     if hand then
-                        -- vi tri tay de cam
-                        base = hand.CFrame * CFrame.new(0.08, -0.28, 0)
+                        base = hand.CFrame
+                            * (grip or CFrame.new())
+                            * WEAPON_GRIP
                     end
                 elseif head then
                     base = head.CFrame
@@ -6790,7 +7286,7 @@ local function initCosmeticsAndMusic()
 
                 if base and cfg.enabled then
                     if key ~= "wings" and key ~= "dragonwings"
-                        and key ~= "dragon" then
+                        and key ~= "dragon" and not WEAPON_KEYS[key] then
                         cm.angle = (cm.angle or 0) + dt * math.rad(cfg.spin or 0)
                     end
                     updateModel(cm, base, cfg, t, cm.angle or 0, true, false)
@@ -6801,6 +7297,9 @@ local function initCosmeticsAndMusic()
         end
 
         updatePreviewImpl(dt, t)
+        if ui.tickThumbs then
+            ui.tickThumbs(t)
+        end
 
         saveAcc = saveAcc + dt
         if saveAcc >= 5 then
@@ -6816,6 +7315,9 @@ local function initCosmeticsAndMusic()
     end))
 
     cosmeticRefresh()
+    if ui.refreshCosThumbs then
+        pcall(ui.refreshCosThumbs)
+    end
 
     hubSound = new("Sound", {
         Name = "BenchMusicSound",
@@ -6850,6 +7352,31 @@ local fovCircle = new("Frame", {
 new("UICorner", { CornerRadius = UDim.new(1, 0) }, fovCircle)
 local fovStroke = new("UIStroke", { Color = Theme.accent, Thickness = 1.5 }, fovCircle)
 
+--// diem aim khi dung che do Swipe
+ui.swipeDot = new("Frame", {
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    Position = UDim2.fromScale(0.5, 0.5),
+    Size = UDim2.fromOffset(34, 34),
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    Visible = false,
+    ZIndex = 4,
+}, espGui)
+ui.swipeStroke = new("UIStroke", {
+    Color = Theme.accent,
+    Thickness = 1.5,
+    Transparency = 0.2,
+}, ui.swipeDot)
+new("UICorner", { CornerRadius = UDim.new(1, 0) }, ui.swipeDot)
+ui.swipeCore = new("Frame", {
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    Position = UDim2.fromScale(0.5, 0.5),
+    Size = UDim2.fromOffset(4, 4),
+    BackgroundColor3 = Theme.accent,
+    BorderSizePixel = 0,
+}, ui.swipeDot)
+new("UICorner", { CornerRadius = UDim.new(1, 0) }, ui.swipeCore)
+
 --// main loop
 track(RunService.RenderStepped:Connect(function(dt)
     local cam = workspace.CurrentCamera
@@ -6860,7 +7387,7 @@ track(RunService.RenderStepped:Connect(function(dt)
     currentTarget = findTarget()
     local mode = Config.aim.mode
     if Config.aim.enabled and currentTarget then
-        if mode == 2 or mode == 3 then
+        if mode == 2 or mode == 3 or mode == 4 then
             installSilent()
             silentTarget = currentTarget
         else
@@ -6870,6 +7397,8 @@ track(RunService.RenderStepped:Connect(function(dt)
             applyAim(currentTarget, mode == 3 and 0.45 or 1)
         elseif mode == 2 and not silentReady then
             applyAim(currentTarget, 1)
+        elseif mode == 4 then
+            applyAim(currentTarget, 0.35)
         end
     else
         silentTarget = nil
@@ -6889,6 +7418,17 @@ track(RunService.RenderStepped:Connect(function(dt)
     if Config.aim.enabled then
         fovCircle.Size = UDim2.fromOffset(Config.aim.fov, Config.aim.fov)
         fovStroke.Color = Theme.accent
+    end
+
+    local swipeOn = Config.aim.enabled and Config.aim.mode == 4
+    ui.swipeDot.Visible = swipeOn
+    if swipeOn then
+        ui.swipeDot.Position = UDim2.fromOffset(
+            cam.ViewportSize.X * 0.5 + aimSwipeOffset.X,
+            cam.ViewportSize.Y * 0.5 + aimSwipeOffset.Y
+        )
+        ui.swipeStroke.Color = Theme.accent
+        ui.swipeCore.BackgroundColor3 = Theme.accent
     end
 end))
 
